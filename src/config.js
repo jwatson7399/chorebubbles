@@ -14,6 +14,6 @@
 // works on one phone using browser storage, with no syncing.
 // ---------------------------------------------------------------
 
-export const SUPABASE_URL = "";
-export const SUPABASE_ANON_KEY = "";
+export const SUPABASE_URL = "https://kvrdnnjfwtazmfzikkvw.supabase.co";
+export const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt2cmRubmpmd3Rhem1memlra3Z3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3NDczMzcsImV4cCI6MjEwMDMyMzMzN30.tf0Bbgh_VL0hhNGTT2fcU52pQkaBrUuxV80sK4q-3lE";
 export const HOUSEHOLD_ID = "cb_e3ba63db0abfdac37e3bb98a8e769785";
