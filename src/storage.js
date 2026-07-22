@@ -39,6 +39,16 @@ export async function sendMagicLink(email) {
   if (error) throw error;
 }
 
+// Verify the 6-digit code from the email. Unlike a magic link, this completes
+// sign-in inside the current context, so it works in an installed iOS PWA where
+// the app has separate storage from Safari.
+export async function verifyEmailOtp(email, token) {
+  if (!supa) return null;
+  const { data, error } = await supa.auth.verifyOtp({ email, token, type: "email" });
+  if (error) throw error;
+  return data.session;
+}
+
 export async function signOut() {
   if (!supa) return;
   const { error } = await supa.auth.signOut();

@@ -9,6 +9,7 @@ import {
   getAuthSession,
   onAuthSessionChange,
   sendMagicLink,
+  verifyEmailOtp,
   signOut,
   getMe as loadMe,
   setMe as saveMe,
@@ -424,6 +425,7 @@ export default function ChoreBubbles() {
   const [authReady, setAuthReady] = useState(!isSynced());
   const [authEmail, setAuthEmail] = useState("");
   const [authSent, setAuthSent] = useState(false);
+  const [authCode, setAuthCode] = useState("");
   const [authError, setAuthError] = useState("");
   const [data, setData] = useState(null);
   const [me, setMe] = useState(null);
@@ -574,7 +576,20 @@ export default function ChoreBubbles() {
       await sendMagicLink(email);
       setAuthSent(true);
     } catch (error) {
-      setAuthError(error.message || "Could not send the sign-in link.");
+      setAuthError(error.message || "Could not send the sign-in code.");
+    }
+  };
+
+  const verifyCode = async () => {
+    const email = authEmail.trim().toLowerCase();
+    const token = authCode.replace(/\s/g, "");
+    if (!email || !token) return;
+    setAuthError("");
+    try {
+      const nextSession = await verifyEmailOtp(email, token);
+      if (nextSession) setSession(nextSession);
+    } catch (error) {
+      setAuthError(error.message || "That code didn't work. Check it and try again.");
     }
   };
 
@@ -676,7 +691,7 @@ export default function ChoreBubbles() {
       <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center", background: "radial-gradient(120% 100% at 50% 0%, #123240 0%, #0C1B26 70%)", color: "#E8F3F4", fontFamily: "'Nunito Sans', sans-serif", padding: 24 }}>
         <div style={{ width: "100%", maxWidth: 420, background: "#16303C", border: "1px solid #1E4152", borderRadius: 22, padding: 24 }}>
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 26, fontWeight: 700, marginBottom: 4 }}>Chore<span style={{ color: "#5FE0BB" }}>Bubbles</span></div>
-          <div style={{ color: "#B9D2D8", fontSize: 14, marginBottom: 18 }}>Sign in with an approved household email. We’ll send you a secure magic link.</div>
+          <div style={{ color: "#B9D2D8", fontSize: 14, marginBottom: 18 }}>Sign in with an approved household email. We’ll email you a 6-digit code to enter below.</div>
           <input
             type="email"
             autoComplete="email"
@@ -686,8 +701,27 @@ export default function ChoreBubbles() {
             onKeyDown={(event) => { if (event.key === "Enter") requestMagicLink(); }}
             style={{ width: "100%", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 12, padding: "12px 14px", color: "#E8F3F4", fontSize: 15, marginBottom: 10 }}
           />
-          <button onClick={requestMagicLink} style={{ ...btnStyle("#5FE0BB"), width: "100%" }}>Email me a sign-in link</button>
-          {authSent && <div style={{ color: "#5FE0BB", fontSize: 13, marginTop: 12 }}>Link sent. Open it on this device to finish signing in.</div>}
+          <button onClick={requestMagicLink} style={{ ...btnStyle("#5FE0BB"), width: "100%" }}>
+            {authSent ? "Resend code" : "Email me a sign-in code"}
+          </button>
+          {authSent && (
+            <>
+              <div style={{ color: "#B9D2D8", fontSize: 13, margin: "16px 0 8px" }}>
+                Enter the 6-digit code from the email. This works even when the app is installed to your home screen.
+              </div>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={authCode}
+                placeholder="123456"
+                onChange={(event) => setAuthCode(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") verifyCode(); }}
+                style={{ width: "100%", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 12, padding: "12px 14px", color: "#E8F3F4", fontSize: 20, letterSpacing: 6, textAlign: "center", marginBottom: 10 }}
+              />
+              <button onClick={verifyCode} style={{ ...btnStyle("#5FE0BB"), width: "100%" }}>Verify code</button>
+            </>
+          )}
           {authError && <div style={{ color: "#FF8B7B", fontSize: 13, marginTop: 12 }}>{authError}</div>}
         </div>
       </div>
