@@ -434,6 +434,7 @@ export default function ChoreBubbles() {
   const [askWho, setAskWho] = useState(false);
   const [tab, setTab] = useState("bubbles");
   const [tapChore, setTapChore] = useState(null);
+  const [tapWhenDays, setTapWhenDays] = useState(0);
   const [serviceOpen, setServiceOpen] = useState(false);
   const [serviceSel, setServiceSel] = useState({});
   const [editChore, setEditChore] = useState(null);
@@ -441,6 +442,7 @@ export default function ChoreBubbles() {
   const [popId, setPopId] = useState(null);
   const [syncState, setSyncState] = useState("");
   const [simDays, setSimDays] = useState(0);
+  const [simData, setSimData] = useState(null);
   const [simOpen, setSimOpen] = useState(false);
   const [healthPulse, setHealthPulse] = useState(false);
   const prevHealthRef = useRef(null);
@@ -453,6 +455,11 @@ export default function ChoreBubbles() {
   const simDaysRef = useRef(0);
   dataRef.current = data;
   simDaysRef.current = simDays;
+
+  // While the time machine is running, edits (popping bubbles, service, pauses)
+  // apply to a local sandbox copy that is never synced and is discarded on
+  // returning to today. This keeps simulated play out of the shared household.
+  const view = simDays > 0 && simData ? simData : data;
 
   const showToast = useCallback((msg, undoFn = null) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -559,16 +566,18 @@ export default function ChoreBubbles() {
   }, [authReady, session, load, flushQueue]);
 
   const commit = useCallback((operation) => {
+    // In the time machine, stamp with simulated "now" and keep edits local.
     if (simDaysRef.current > 0) {
-      showToast("Return to today before making changes.");
-      return false;
+      const simStamped = { ...operation, id: operation.id || uid(), createdAt: now() };
+      setSimData((current) => applyOperation(current || dataRef.current, simStamped));
+      return true;
     }
     const stamped = { ...operation, id: operation.id || uid(), createdAt: realNow() };
     enqueueOperation(stamped);
     setData((current) => applyOperation(current, stamped));
     flushQueue();
     return true;
-  }, [flushQueue, showToast]);
+  }, [flushQueue]);
 
   const requestMagicLink = async () => {
     const email = authEmail.trim().toLowerCase();
@@ -604,46 +613,50 @@ export default function ChoreBubbles() {
   const setSim = (days) => {
     const d = Math.max(0, days);
     TIME_OFFSET = d * DAY;
+    simDaysRef.current = d;
+    // Seed the sandbox from real data when entering; drop it when back to today.
+    if (d === 0) setSimData(null);
+    else setSimData((current) => current || dataRef.current);
     setSimDays(d);
   };
 
   const resetActivity = () => {
-    commit({ type: "completion:remove", ids: data.completions.map((item) => item.id) });
+    commit({ type: "completion:remove", ids: view.completions.map((item) => item.id) });
   };
 
   const togglePause = (scope) => {
-    const active = !!activePause(data.pauses || [], scope);
-    commit({ type: "pause:set", scope, active: !active, at: realNow(), pauseId: uid() });
+    const active = !!activePause(view.pauses || [], scope);
+    commit({ type: "pause:set", scope, active: !active, at: now(), pauseId: uid() });
   };
 
   const logCompletion = (chore, by) => {
-    const comp = { id: uid(), choreId: chore.id, choreName: chore.name, difficulty: chore.difficulty, by, ts: realNow() };
+    // "when" lets you backdate a chore you forgot to log (e.g. done yesterday).
+    const ts = now() - tapWhenDays * DAY;
+    const comp = { id: uid(), choreId: chore.id, choreName: chore.name, difficulty: chore.difficulty, by, ts };
     if (!commit({ type: "completion:add", completion: comp })) return;
     setTapChore(null);
+    setTapWhenDays(0);
     setPopId(chore.id);
     if (popTimer.current) clearTimeout(popTimer.current);
     popTimer.current = setTimeout(() => setPopId(null), 1000);
-    const who = by === "joint" ? "together" : by === "a" ? data.settings.nameA : data.settings.nameB;
-    showToast(`${chore.name} done ${by === "joint" ? "" : "by "}${who}`, () => {
+    const who = by === "joint" ? "together" : by === "a" ? view.settings.nameA : view.settings.nameB;
+    const when = tapWhenDays === 0 ? "" : tapWhenDays === 1 ? " (yesterday)" : ` (${tapWhenDays}d ago)`;
+    showToast(`${chore.name} done ${by === "joint" ? "" : "by "}${who}${when}`, () => {
       commit({ type: "completion:remove", ids: [comp.id] });
       setToast(null);
     });
   };
 
   const openService = () => {
-    if (simDays > 0) {
-      showToast("Return to today before making changes.");
-      return;
-    }
     const sel = {};
-    for (const ch of data.chores) sel[ch.id] = !!ch.service;
+    for (const ch of view.chores) sel[ch.id] = !!ch.service;
     setServiceSel(sel);
     setServiceOpen(true);
   };
 
   const confirmService = () => {
-    const ts = realNow();
-    const comps = data.chores
+    const ts = now();
+    const comps = view.chores
       .filter((ch) => serviceSel[ch.id])
       .map((ch) => ({ id: uid(), choreId: ch.id, choreName: ch.name, difficulty: ch.difficulty, by: "service", ts }));
     if (!commit({ type: "completion:add-many", completions: comps })) return;
@@ -670,15 +683,15 @@ export default function ChoreBubbles() {
 
   // Pulse the health bar green whenever the score rises
   useEffect(() => {
-    if (!data) return;
-    const pct = Math.round(healthScore(data.chores, data.completions, data.pauses || []) * 100);
+    if (!view) return;
+    const pct = Math.round(healthScore(view.chores, view.completions, view.pauses || []) * 100);
     if (prevHealthRef.current != null && pct > prevHealthRef.current) {
       setHealthPulse(true);
       if (pulseTimer.current) clearTimeout(pulseTimer.current);
       pulseTimer.current = setTimeout(() => setHealthPulse(false), 1400);
     }
     prevHealthRef.current = pct;
-  }, [data]);
+  }, [view]);
 
   if (!authReady) {
     return (
@@ -739,18 +752,18 @@ export default function ChoreBubbles() {
     );
   }
 
-  const { settings } = data;
-  const pauses = data.pauses || [];
+  const { settings } = view;
+  const pauses = view.pauses || [];
   const housePaused = !!activePause(pauses, "house");
   const aPaused = !!activePause(pauses, "a");
   const bPaused = !!activePause(pauses, "b");
-  const ptsA = decayedPoints(data.completions, "a", settings.halfLifeDays, pauses);
-  const ptsB = decayedPoints(data.completions, "b", settings.halfLifeDays, pauses);
-  const health = healthScore(data.chores, data.completions, pauses);
+  const ptsA = decayedPoints(view.completions, "a", settings.halfLifeDays, pauses);
+  const ptsB = decayedPoints(view.completions, "b", settings.halfLifeDays, pauses);
+  const health = healthScore(view.chores, view.completions, pauses);
   const healthPct = Math.round(health * 100);
   const healthColor = healthPct >= 80 ? "#5FE0BB" : healthPct >= 50 ? "#FFC65E" : "#FF8B7B";
   const goal = settings.weeklyGoal;
-  const recent = [...data.completions].sort((a, b) => b.ts - a.ts).slice(0, 30);
+  const recent = [...view.completions].sort((a, b) => b.ts - a.ts).slice(0, 30);
 
   const Column = ({ label, pts, hue }) => {
     const pct = Math.min(pts / goal, 1.35);
@@ -820,7 +833,7 @@ export default function ChoreBubbles() {
       </div>
 
       {/* Our home's health bar */}
-      {data.chores.length > 0 && (
+      {view.chores.length > 0 && (
         <div style={{ padding: "2px 20px 10px" }}>
           <div style={{ textAlign: "center", marginBottom: 2 }}>
             <span
@@ -872,7 +885,7 @@ export default function ChoreBubbles() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           {simDays > 0 && (
             <div style={{ margin: "4px 20px 0", padding: "9px 14px", background: "#3B3215", border: "1px solid #6E5C21", borderRadius: 12, fontSize: 13, color: "#FFC65E", textAlign: "center" }}>
-              🧪 Preview only. Return to today to log or edit anything.
+              🧪 Time machine — tap bubbles to test. Nothing here is saved or shared.
             </div>
           )}
           {housePaused && (
@@ -880,9 +893,9 @@ export default function ChoreBubbles() {
               🏖 Household paused. Bubbles are frozen until you resume.
             </div>
           )}
-          <BubbleField chores={data.chores} completions={data.completions} pauses={pauses} onTap={simDays > 0 ? () => showToast("Return to today before logging a chore.") : setTapChore} popId={popId} simDays={simDays} />
+          <BubbleField chores={view.chores} completions={view.completions} pauses={pauses} onTap={(ch) => { setTapWhenDays(0); setTapChore(ch); }} popId={popId} simDays={simDays} />
           <div style={{ padding: "0 20px 10px" }}>
-            <button disabled={simDays > 0} onClick={openService} style={{ ...btnStyle("#0F2530", "#5FE0BB"), width: "100%", border: "1px solid #1E4152", opacity: simDays > 0 ? 0.45 : 1 }}>
+            <button onClick={openService} style={{ ...btnStyle("#0F2530", "#5FE0BB"), width: "100%", border: "1px solid #1E4152" }}>
               🧹 Cleaning service came
             </button>
           </div>
@@ -924,12 +937,12 @@ export default function ChoreBubbles() {
           <button disabled={simDays > 0} onClick={() => setEditChore({ name: "", importance: 3, difficulty: 2, freqDays: 7, service: false })} style={{ ...btnStyle("#5FE0BB"), width: "100%", marginBottom: 10, opacity: simDays > 0 ? 0.45 : 1 }}>
             + Add chore
           </button>
-          {data.chores.length === 0 && (
+          {view.chores.length === 0 && (
             <button disabled={simDays > 0} onClick={addStarters} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", marginBottom: 10, border: "1px solid #1E4152", opacity: simDays > 0 ? 0.45 : 1 }}>
               Load a starter list of common chores
             </button>
           )}
-          {data.chores.map((ch, i) => (
+          {view.chores.map((ch, i) => (
             <div key={ch.id} onClick={() => setEditChore(ch)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid #1A3542", cursor: "pointer" }}>
               <div style={{ width: 14, height: 14, borderRadius: "50%", background: HUES[i % HUES.length], flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
@@ -1034,10 +1047,22 @@ export default function ChoreBubbles() {
 
       {/* Complete chore */}
       {tapChore && (
-        <Modal onClose={() => setTapChore(null)}>
+        <Modal onClose={() => { setTapChore(null); setTapWhenDays(0); }}>
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 19, fontWeight: 700 }}>{tapChore.name}</div>
-          <div style={{ fontSize: 13, color: "#7FA3AC", margin: "4px 0 18px" }}>
-            Last done {timeAgo(lastDone(tapChore, data.completions))} · worth {tapChore.difficulty} pts
+          <div style={{ fontSize: 13, color: "#7FA3AC", margin: "4px 0 16px" }}>
+            Last done {timeAgo(lastDone(tapChore, view.completions))} · worth {tapChore.difficulty} pts
+          </div>
+          <div style={{ fontSize: 12, color: "#7FA3AC", marginBottom: 7 }}>When was it done?</div>
+          <div style={{ display: "flex", gap: 7, marginBottom: 18, flexWrap: "wrap" }}>
+            {[{ d: 0, l: "Just now" }, { d: 1, l: "Yesterday" }, { d: 2, l: "2 days ago" }, { d: 3, l: "3 days ago" }].map((o) => (
+              <button
+                key={o.d}
+                onClick={() => setTapWhenDays(o.d)}
+                style={{ ...btnStyle(tapWhenDays === o.d ? "#5FE0BB" : "#0F2530", tapWhenDays === o.d ? "#0C1B26" : "#B9D2D8"), padding: "7px 12px", fontSize: 13, border: tapWhenDays === o.d ? "none" : "1px solid #1E4152" }}
+              >
+                {o.l}
+              </button>
+            ))}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <button onClick={() => logCompletion(tapChore, me || "a")} style={btnStyle("#5FE0BB")}>
@@ -1059,7 +1084,7 @@ export default function ChoreBubbles() {
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Cleaning service visit</div>
           <div style={{ fontSize: 13, color: "#7FA3AC", marginBottom: 14 }}>Check off what they handled. These bubbles reset without crediting either column.</div>
           <div style={{ maxHeight: 300, overflowY: "auto", marginBottom: 16 }}>
-            {data.chores.map((ch) => (
+            {view.chores.map((ch) => (
               <label key={ch.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: "1px solid #1A3542", cursor: "pointer" }}>
                 <input
                   type="checkbox"

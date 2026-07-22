@@ -81,4 +81,4 @@ Shared data remains one JSON document for simple deployment, but local edits are
 
 The operation queue lives in local storage until Supabase confirms the write, so a network failure or app reload does not discard unsynced changes. Polling runs every 20 seconds and whenever the app returns to the foreground.
 
-Simulation time never enters shared data. While fast-forwarded, the interface is read-only, and all persisted events use the device's real clock.
+Simulation time never enters shared data. While fast-forwarded, edits (popping bubbles, cleaning-service resets, pauses) apply to a local sandbox copy that is discarded on returning to today, so testing never touches the shared household. Chore and settings changes stay disabled in simulation. All real, persisted events use the device's real clock.
