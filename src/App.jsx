@@ -241,10 +241,12 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
     const baseR = Math.sqrt(areaBudget / Math.PI);
     return chores.map((ch, i) => {
       const u = Math.min(urgencyOf(ch, completions, pauses), 2.2);
-      const impW = 0.62 + 0.09 * ch.importance;
-      // Freshly completed chores collapse to a small satisfying dot, then regrow
-      const growth = 0.42 + 0.88 * (u / 2.2);
-      const r = Math.max(Math.min(baseR * impW * growth, 100), 19);
+      // Importance sets the baseline footprint: a Critical chore starts about
+      // twice the diameter of a Low one (imp 1 -> 0.66, imp 5 -> 1.30)
+      const impW = 0.5 + 0.16 * ch.importance;
+      // Urgency swells the bubble from its fresh size toward overdue
+      const growth = 0.5 + 0.8 * (u / 2.2);
+      const r = Math.max(Math.min(baseR * impW * growth, 100), 17);
       return { id: ch.id, chore: ch, r, urgency: urgencyOf(ch, completions, pauses), hue: HUES[i % HUES.length] };
     });
   }, [chores, completions, pauses, size, simDays]);
@@ -797,7 +799,7 @@ export default function ChoreBubbles() {
       `}</style>
 
       {/* Header */}
-      <div style={{ padding: "16px 20px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ padding: "calc(env(safe-area-inset-top) + 14px) 20px 8px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 22, fontWeight: 700, letterSpacing: 0.3 }}>
           Chore<span style={{ color: "#5FE0BB" }}>Bubbles</span>
         </div>
