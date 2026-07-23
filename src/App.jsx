@@ -30,11 +30,21 @@ import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
 // Bubbles swell as chores go undone. Tap to complete, drag to rearrange.
 
 
-const HUES = [
-  "#FF8B7B", "#FFB38A", "#FFC65E", "#FFE07D", "#9BE087", "#5FE0BB",
-  "#57D0D8", "#6FC3FF", "#7FA0FF", "#C7A5F7", "#E29BF0", "#FF9FC0",
-  "#FF7EA8", "#B5E86F", "#8AD9C0", "#F7B267",
-];
+// Soft pastel color spread evenly around the wheel via the golden angle, so
+// each bubble gets a distinct hue and the range keeps widening with more chores.
+// Returns 6-digit hex so the existing `${hue}AA` alpha suffixes keep working.
+function hslToHex(h, s, l) {
+  s /= 100;
+  l /= 100;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => {
+    const k = (n + h / 30) % 12;
+    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(255 * c).toString(16).padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+const bubbleHue = (i) => hslToHex((i * 137.508) % 360, 62, 68);
 
 const STARTERS = [
   { name: "Dishes", importance: 4, difficulty: 1, freqDays: 1, service: false },
@@ -222,7 +232,7 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
       // Urgency swells the bubble from its fresh size toward overdue
       const growth = 0.5 + 0.8 * (u / 2.2);
       const r = Math.max(Math.min(baseR * impW * growth, 100), 17);
-      return { id: ch.id, chore: ch, r, urgency: urgencyOf(ch, completions, pauses), hue: HUES[i % HUES.length] };
+      return { id: ch.id, chore: ch, r, urgency: urgencyOf(ch, completions, pauses), hue: bubbleHue(i) };
     });
   }, [chores, completions, pauses, size, simDays]);
 
@@ -1288,7 +1298,7 @@ export default function ChoreBubbles() {
           )}
           {view.chores.map((ch, i) => (
             <div key={ch.id} onClick={() => setEditChore(ch)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid #1A3542", cursor: "pointer" }}>
-              <div style={{ width: 14, height: 14, borderRadius: "50%", background: HUES[i % HUES.length], flexShrink: 0 }} />
+              <div style={{ width: 14, height: 14, borderRadius: "50%", background: bubbleHue(i), flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 15, fontWeight: 600 }}>{ch.name}</div>
                 <div style={{ fontSize: 12, color: "#7FA3AC" }}>
