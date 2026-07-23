@@ -573,7 +573,7 @@ function ProgressRow({ label, points, goal, hue, paused = false, prominent = fal
                 animation: zone.key === "green" ? "greenArrival 0.7s ease-out" : "none",
               }}
             >
-              {zone.key === "green" ? "● " : ""}{zone.label}
+              {zone.label}
             </span>
           )}
         </div>
