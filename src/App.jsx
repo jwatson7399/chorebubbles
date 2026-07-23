@@ -24,6 +24,12 @@ import {
   suggestCombo,
   weeklyPoints,
 } from "./logModel.js";
+import {
+  choreHistoryFor,
+  completionActor,
+  completionImpact,
+  lastDoneLabel,
+} from "./choreHistory.js";
 import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
 
 // ChoreBubbles: a shared household chore ecosystem.
@@ -199,6 +205,18 @@ function timeAgo(ts) {
   const d = Math.floor(h / 24);
   if (d === 1) return "yesterday";
   return d + "d ago";
+}
+
+function historyDate(ts) {
+  const date = new Date(Number(ts));
+  if (!Number.isFinite(date.getTime())) return "Unknown date";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 // ---------- Bubble field ----------
@@ -445,7 +463,7 @@ function Modal({ children, onClose }) {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ background: "#16303C", borderRadius: "22px 22px 0 0", padding: "22px 20px 34px", width: "100%", maxWidth: 480, boxShadow: "0 -8px 40px rgba(0,0,0,0.5)" }}
+        style={{ background: "#16303C", borderRadius: "22px 22px 0 0", padding: "22px 20px 34px", width: "100%", maxWidth: 480, maxHeight: "92dvh", overflowY: "auto", boxShadow: "0 -8px 40px rgba(0,0,0,0.5)" }}
       >
         {children}
       </div>
@@ -1061,6 +1079,10 @@ export default function ChoreBubbles() {
   const healthPct = Math.round(health * 100);
   const healthColor = healthPct >= 80 ? "#5FE0BB" : healthPct >= 50 ? "#FFC65E" : "#FF8B7B";
   const recent = [...view.completions].sort((a, b) => b.ts - a.ts).slice(0, 30);
+  const choreHistories = new Map(
+    view.chores.map((chore) => [chore.id, choreHistoryFor(view.completions, chore.id)])
+  );
+  const editChoreHistory = editChore?.id ? choreHistories.get(editChore.id) || [] : [];
   const togetherPoints = pointsA + pointsB;
   const togetherGoal = goal * 2;
   const previousRecap = !previousHasActivity
@@ -1296,18 +1318,55 @@ export default function ChoreBubbles() {
               Load a starter list of common chores
             </button>
           )}
-          {view.chores.map((ch, i) => (
-            <div key={ch.id} onClick={() => setEditChore(ch)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid #1A3542", cursor: "pointer" }}>
-              <div style={{ width: 14, height: 14, borderRadius: "50%", background: bubbleHue(i), flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 600 }}>{ch.name}</div>
-                <div style={{ fontSize: 12, color: "#7FA3AC" }}>
-                  {impLabel(ch.importance)} importance · effort {ch.difficulty} · every {ch.freqDays}d{ch.service ? " · 🧹 service" : ""}
+          {view.chores.map((ch, i) => {
+            const latest = choreHistories.get(ch.id)?.[0];
+            const resetEntry = latest?.by === "service" || latest?.by === "reset";
+            return (
+              <div
+                key={ch.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`Open ${ch.name} details and history`}
+                onClick={() => setEditChore(ch)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setEditChore(ch);
+                  }
+                }}
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid #1A3542", cursor: "pointer" }}
+              >
+                <div style={{ width: 14, height: 14, borderRadius: "50%", background: bubbleHue(i), flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>{ch.name}</div>
+                  <div style={{ fontSize: 12, color: "#7FA3AC" }}>
+                    {impLabel(ch.importance)} importance · effort {ch.difficulty} · every {ch.freqDays}d{ch.service ? " · 🧹 service" : ""}
+                  </div>
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 5,
+                      maxWidth: "100%",
+                      marginTop: 6,
+                      padding: "4px 8px",
+                      borderRadius: 8,
+                      background: latest ? (resetEntry ? "#23313A" : "#14372F") : "#142A35",
+                      color: latest ? (resetEntry ? "#9FB6BC" : "#8EDCC5") : "#7FA3AC",
+                      fontSize: 11.5,
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    <span aria-hidden="true">{latest ? (resetEntry ? "↻" : "✓") : "○"}</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {lastDoneLabel(latest, settings)}{latest ? ` · ${timeAgo(latest.ts)}` : ""}
+                    </span>
+                  </div>
                 </div>
+                <div style={{ color: "#7FA3AC" }}>›</div>
               </div>
-              <div style={{ color: "#7FA3AC" }}>›</div>
-            </div>
-          ))}
+            );
+          })}
 
           {view.chores.length > 0 && (
             <>
@@ -1511,6 +1570,42 @@ export default function ChoreBubbles() {
             />
             <span style={{ fontSize: 14, color: "#B9D2D8" }}>Cleaning service usually handles this</span>
           </label>
+          {editChore.id && (
+            <section style={{ marginTop: 10, paddingTop: 14, borderTop: "1px solid #244653" }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+                <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 700 }}>Chore history</div>
+                <div style={{ color: "#7FA3AC", fontSize: 11.5 }}>
+                  {editChoreHistory.length} entr{editChoreHistory.length === 1 ? "y" : "ies"}
+                </div>
+              </div>
+              {editChoreHistory.length === 0 ? (
+                <div style={{ background: "#102733", border: "1px solid #1A3B49", borderRadius: 12, padding: "12px 14px", color: "#7FA3AC", fontSize: 13 }}>
+                  No one has logged this chore yet.
+                </div>
+              ) : (
+                <div style={{ maxHeight: 220, overflowY: "auto", background: "#102733", border: "1px solid #1A3B49", borderRadius: 12, padding: "0 12px" }}>
+                  {editChoreHistory.map((entry) => {
+                    const resetEntry = entry.by === "service" || entry.by === "reset";
+                    return (
+                      <div key={entry.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 0", borderBottom: "1px solid #1A3542" }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ color: "#E8F3F4", fontSize: 13.5, fontWeight: 700 }}>
+                            {completionActor(entry, settings)}
+                          </div>
+                          <div style={{ color: "#7FA3AC", fontSize: 11.5, marginTop: 1 }}>
+                            {historyDate(entry.ts)} · {timeAgo(entry.ts)}
+                          </div>
+                        </div>
+                        <div style={{ color: resetEntry ? "#9FB6BC" : "#5FE0BB", fontSize: 12.5, fontWeight: 800, whiteSpace: "nowrap" }}>
+                          {completionImpact(entry)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
           <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
             {editChore.id && (
               <button onClick={() => deleteChore(editChore.id)} style={{ ...btnStyle("#0F2530", "#FF8B7B"), flex: 1, border: "1px solid #1E4152" }}>Delete</button>
