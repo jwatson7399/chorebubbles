@@ -18,7 +18,7 @@ export function effortZone(points, goal, greenStart) {
   const total = Math.max(0, Number(points) || 0);
 
   if (total >= thresholds.greenMin) {
-    return { key: "green", label: "Ideal 👌", color: "#5FE0BB", ...thresholds };
+    return { key: "green", label: "On top of it! 👌", color: "#5FE0BB", ...thresholds };
   }
   if (total >= thresholds.buildingMin) {
     return { key: "building", label: "Maintaining", color: "#FFC65E", ...thresholds };
