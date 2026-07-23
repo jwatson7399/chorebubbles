@@ -80,6 +80,43 @@ Boundaries are inclusive whole points; over-scale effort stays green. Logic live
 
 ---
 
+## 6. Zone language and at-a-glance status on the main screen
+
+**Objective.** Two related goals: (a) make the effort-zone *names* read as plain, encouraging human language rather than a neutral scale, and (b) let a person read their zone status on the Bubbles (main) screen without opening the Log tab.
+
+**Methodology / data.** The zone labels started as engineering-flavored words (`Getting started` / `Building` / `Green`) — descriptive but flat, and "Green" awkwardly named a zone after its own color. We iterated the labels live with the user, converging in stages:
+- Green: `Green` → `Ideal 👌` → **`On top of it! 👌`** (the user preferred an active, congratulatory phrase over a static adjective).
+- Amber: `Building` → **`Maintaining 👍`** (reframes the middle band as a stable, fine place to be, not an unfinished state).
+- Red: `Getting started` → **`Getting started ⚠️`** (kept the gentle name, added a caution glyph so the "needs attention" band is legible at a glance).
+
+Each emoji was chosen to encode the *same* three-step severity the color already conveys (⚠️ attention → 👍 fine → 👌 great), so color and glyph reinforce rather than compete.
+
+**Results.**
+- `effortZone` in `src/logModel.js` now returns both a full `label` (text + emoji, shown in the Log-tab zone pills and in ARIA labels) **and** a standalone `emoji` field, so surfaces that want only the icon don't have to parse it out of the label string.
+- The Bubbles-tab compact bars (`CompactBar`) were upgraded from a plain track with a single green divider to the **same three-band zoned background** the Log bars use (`linear-gradient` red→amber→green at the real `buildingPct`/`greenPct` thresholds, with two divider ticks), and now render the **current zone's emoji only**, small and centered directly above each person's bar. This mirrors the full Log bar in miniature so the main screen alone answers "how am I doing?".
+
+**Design rationale / notes.**
+- Adding an `emoji` field (rather than slicing the label) keeps the two presentations — "full label with words" vs. "icon only" — independent and prevents brittle string surgery if wording changes again.
+- The centered emoji is `aria-hidden`: the numeric `points/goal` beside it already carries the state to screen readers, so the bare glyph would be redundant noise.
+- Placing the emoji *above the center of the bar* (its own centered line between the name/points row and the track) ties the icon visually to the bar it describes without disturbing the existing left-name / right-score header layout.
+- Because zone naming now lives in one place, the same rename rippled to the README feature list and the "Sync model" section, which had described the zones by their old names — both were updated so docs and UI speak the same language.
+
+---
+
+## 7. Reviewing and integrating parallel (Codex) contributions
+
+**Objective.** Two features were authored on a parallel Codex track and needed to be reviewed and folded into `main` without regressing the app: **per-chore activity history** and a **main-screen suggestion shuffle with bubble highlighting**.
+
+**Methodology / data.** Rather than trust the diff blind, each contribution was read in full (`git diff`), reasoned about for coherence with existing patterns, and gated on `npm test` + `npm run build` against the combined working tree before committing.
+- *Per-chore history* extracted its logic into a new pure module `src/choreHistory.js` (`choreHistoryFor`, `completionActor`, `lastDoneLabel`, `completionImpact`) with its own vitest suite (`choreHistory.test.js`, 3 tests) — congruent with the project's "pure logic in tested modules" rule (see notes below). It adds last-done banners to each chore row (✓ done / ↻ reset / ○ never) and a scrollable full-history section in the edit modal; the modal gained `maxHeight: 92dvh` + scroll to accommodate it, and rows became keyboard-activatable.
+- *Suggestion shuffle* threads a `suggestedIds` set into `BubbleField`, which draws a golden glow/outline (with a `box-shadow`/`outline-color` transition and raised z-index) on suggested bubbles. A new `bubbleSuggestionsVisible` state + `shuffleSuggestions()` handler reveals them; a "🎲 Shuffle chore suggestions" button was added to the Bubbles tab, and the Log tab's existing "Shuffle ideas" button was repointed at the same handler so both entry points share one code path. The inline bubble `boxShadow` was refactored into a `bubbleShadow` variable to avoid duplicating the due/overdue logic when composing the suggested-state shadow.
+
+**Results.** Both features passed the test + build gate (22 tests total after the history suite was added) and were committed and deployed; the live site was verified at HTTP 200 after each GitHub Pages run went green.
+
+**Design rationale / notes.** The review confirmed both diffs followed established conventions — pure logic isolated and tested, presentational refactors that don't change non-target behavior, and accessibility affordances (ARIA labels, keyboard handlers) consistent with the rest of the app — which is why they were accepted rather than reworked. This section documents the *review* methodology as much as the features: parallel work is integrated by reading it, checking it against the codebase's own rules, and proving it green before it lands.
+
+---
+
 ## Engineering practice notes
 
 - **Pure logic is extracted and unit-tested.** Scoring (`logModel.js`) and drag physics (`bubblePhysics.js`) live in standalone modules with vitest coverage (`npm test`); the React component consumes them. This keeps the testable rules independent of the UI.
