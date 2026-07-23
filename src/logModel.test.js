@@ -3,6 +3,8 @@ import {
   LOG_PERIOD_MS,
   bothStreak,
   effectiveAge,
+  effortZone,
+  effortZoneThresholds,
   pointsInActivePeriod,
   suggestCombo,
   weeklyPoints,
@@ -113,5 +115,32 @@ describe("gap suggestions", () => {
     expect(first).toEqual(again);
     expect(first.chores.every((chore) => urgency[chore.id] >= 0.75)).toBe(true);
     expect(alternate.total).toBe(first.total);
+  });
+});
+
+describe("effort zones", () => {
+  it("places the green threshold at the upper fifth of the full scale", () => {
+    expect(effortZoneThresholds(14)).toEqual({
+      fullScale: 14,
+      buildingMin: 6,
+      greenMin: 12,
+    });
+  });
+
+  it("uses inclusive whole-point boundaries", () => {
+    expect(effortZone(5, 14).key).toBe("starting");
+    expect(effortZone(6, 14).key).toBe("building");
+    expect(effortZone(11, 14).key).toBe("building");
+    expect(effortZone(12, 14).key).toBe("green");
+  });
+
+  it("keeps over-scale effort green and normalizes invalid inputs", () => {
+    expect(effortZone(22, 14).key).toBe("green");
+    expect(effortZone(-3, 0).key).toBe("starting");
+    expect(effortZoneThresholds("8")).toEqual({
+      fullScale: 8,
+      buildingMin: 4,
+      greenMin: 7,
+    });
   });
 });

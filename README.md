@@ -8,7 +8,7 @@ The installable PWA runs full-screen from each phone and securely syncs shared s
 
 - Bubble field with gentle physics, drag to rearrange, tap to complete
 - Importance, difficulty, and goal frequency per chore
-- Per-person rolling seven-active-day effort tallies with a shared goal
+- Per-person rolling seven-active-day effort tallies with visible Getting started, Building, and Green zones
 - Full credit for both people on joint completions
 - Goal-closing chore suggestions that prioritize due and approaching-due work
 - Previous-period recap, household total, and shared streak
@@ -93,4 +93,6 @@ The operation queue lives in local storage until Supabase confirms the write, so
 
 Simulation time never enters shared data. While fast-forwarded, edits (popping bubbles, cleaning-service resets, pauses) apply to a local sandbox copy that is discarded on returning to today, so testing never touches the shared household. Chore and settings changes stay disabled in simulation. All real, persisted events use the device's real clock.
 
-Effort points use each person's last seven active days. Household pauses freeze both tallies, solo pauses freeze only that person's tally, and overlapping pauses are counted once. A joint chore awards its full effort value to both people; cleaning-service and board-reset events award no effort.
+Effort points use each person's last seven active days. The configured full-bar scale is divided into supportive zones: Getting started below 40%, Building from 40%, and Green from 80% onward. Exact points remain visible, but the household goal is simply to keep each individual tally green. The neutral Together bar shows combined activity without masking either person's zone.
+
+Household pauses freeze both tallies, solo pauses freeze only that person's tally, and overlapping pauses are counted once. A joint chore awards its full effort value to both people; cleaning-service and board-reset events award no effort. Gap suggestions, previous-period recaps, and shared streaks all use the start of the Green zone rather than requiring a completely full bar.

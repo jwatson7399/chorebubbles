@@ -7,7 +7,7 @@ Status: Implemented
 
 Make the Log screen immediately understandable to a non-technical household
 member, replace the decay/"half-life" mechanic with a plain rolling tally, and
-help each person see a useful path toward the shared weekly effort goal.
+help each person see a useful path toward a healthy, maintainable effort zone.
 
 The tone should stay cooperative: the household is working together against the
 mess. The screen should inform and encourage without judging either person.
@@ -24,6 +24,30 @@ mess. The screen should inform and encourage without judging either person.
 - The gap-closer is hidden while the household or this phone's person is paused.
 - Intro state is device-local and versioned.
 - Service and board-reset events reset bubbles but never award effort.
+- Each individual tally has three supportive zones: Getting started below 40%,
+  Building from 40%, and Green from 80% onward.
+- The product goal is "keep it in the green." Exact points remain secondary.
+- The Together bar stays neutral so combined effort cannot conceal either
+  person's individual zone.
+- There is no above-green tier; extra effort simply remains Green.
+
+## Effort zone model
+
+`weeklyGoal` remains the stored setting for backward compatibility, but now
+represents the full-bar scale rather than a pass/fail target.
+
+Whole-point thresholds are rounded upward:
+
+- `buildingMin = ceil(fullScale * 0.4)`
+- `greenMin = ceil(fullScale * 0.8)`
+- Getting started: `points < buildingMin`
+- Building: `buildingMin <= points < greenMin`
+- Green: `points >= greenMin`
+
+At the default 14-point scale, Getting started is 0–5, Building is 6–11,
+and Green begins at 12. Scores above the full scale remain Green. The labels,
+not color alone, communicate status. A paused person's current zone remains
+visible but the row is muted and marked away.
 
 ## Core mechanic: rolling seven active days
 
@@ -60,7 +84,7 @@ These half-open boundaries ensure an event can never count in two periods.
 
 User-facing explanation:
 
-> What you've each done over your last 7 active days. Aim for {goal} points.
+> What you've each done over your last 7 active days. Keep it in the green.
 
 Footnotes:
 
@@ -82,18 +106,18 @@ Top-to-bottom layout:
 
   Together                         21 / 28  🤝
   ▰▰▰▰▰▰▰▰▰▰▱▱▱▱
-  Previous 7 days: both hit goal 🎉 · 🔥 3-period streak
+  Previous 7 days: both stayed green 🌱 · 🔥 3-period streak
 
-  Julian                            9 / 14
+  Julian  Building                 9 / 14
   ▰▰▰▰▰▰▰▰▰▱▱▱▱▱
 
-  Kristine  🏖 away                 6 / 14
+  Kristine  🏖 away  Building       6 / 14
   ▰▰▰▰▰▰▱▱▱▱▱▱▱▱
 
   ┌────────────────────────────────────────┐
-  │  You're 5 points from your goal 🎯     │
-  │  Try: Bathroom clean (3) + Laundry (2) │
-  │                              = 5 points │
+  │  You're 3 points from green 🎯         │
+  │  Try: Bathroom clean (3)                │
+  │                              = 3 points │
   │                    🎲 Shuffle ideas     │
   └────────────────────────────────────────┘
 
@@ -103,8 +127,9 @@ Top-to-bottom layout:
   🧹 Bathroom   Cleaning service · 2d    reset
 ```
 
-All progress bars retain a numeric `points / goal` label. Color is supportive,
-not the only way progress or pause state is communicated.
+All progress bars retain a numeric `points / fullScale` label. Individual bars
+show fixed zone regions plus a text status badge. Color is supportive, not the
+only way progress or pause state is communicated.
 
 ## Components and behavior
 
@@ -116,7 +141,8 @@ Display:
 
 The total is deliberately the sum of the two individual tallies. A three-point
 joint chore therefore adds six to the Together total—three to each person. The
-full-for-both footnote makes this rule explicit.
+full-for-both footnote makes this rule explicit. This bar remains a neutral
+mint progress bar and does not display zones.
 
 Use one horizontal progress bar capped visually at 100%; keep the uncapped
 numeric total visible when the household exceeds its goal.
@@ -129,15 +155,15 @@ previous seven active days, not a shared calendar date range.
 
 Recap states:
 
-- Both met goal: `Previous 7 days: both hit goal 🎉`
-- Only A met goal: `Previous 7 days: {nameA} hit the goal`
-- Only B met goal: `Previous 7 days: {nameB} hit the goal`
-- Neither met goal but activity exists:
+- Both were green: `Previous 7 days: both stayed green 🌱`
+- Only A was green: `Previous 7 days: {nameA} was green`
+- Only B was green: `Previous 7 days: {nameB} was green`
+- Neither was green but activity exists:
   `Previous 7 days: {combinedPoints} points together`
 - No eligible activity exists: hide the recap.
 
 The streak is the number of consecutive completed effective-age periods,
-starting at period `1`, in which both people reached `weeklyGoal`. Stop at the
+starting at period `1`, in which both people reached `greenMin`. Stop at the
 first missed period. Do not inspect periods older than the earliest eligible
 completion. Show only streaks of at least two:
 
@@ -152,9 +178,10 @@ Replace the two tall columns with compact horizontal progress rows:
 
 - Person's name.
 - `🏖 away` badge when their solo pause or the household pause is active.
-- Integer `points / goal`.
+- Integer `points / fullScale`.
 - Horizontal bar, visually capped at 100%.
-- Celebration marker when the goal is reached.
+- A text badge for Getting started, Building, or Green.
+- A small celebration when Green is entered.
 
 A paused person is never styled as behind or under-goal. Their points remain
 visible and frozen.
@@ -167,8 +194,9 @@ Visibility:
 
 - Hide when `me` is unknown.
 - Hide while the household or `me` is actively paused.
+- Calculate `gap` to `greenMin`, not to the full scale.
 - Show a success state when `gap === 0`:
-  `You hit your goal for the last 7 days! 🎉`
+  `Your tally is in the green! 🌱`
 - Otherwise show the current gap and a chore suggestion.
 
 Suggestion candidates:
@@ -232,8 +260,8 @@ Use three short, dynamic sentences:
 
 1. Bubbles grow as chores become due.
 2. Tap a bubble when a chore is done.
-3. What you do stays in your tally for seven active days; aim for
-   `{weeklyGoal}` points.
+3. What you do stays in your tally for seven active days; keep your effort in
+   the green.
 
 Dismissal stores the versioned flag. Do not hardcode 14 in the modal.
 
@@ -250,6 +278,8 @@ Extract pure, testable helpers:
 - `weeklyPoints(completions, who, pauses, at)` — period `0`.
 - `bothStreak(completions, goal, pauses, at)` — completed-period streak.
 - `suggestCombo(chores, gap, urgencyById, seed)` — stable ranked suggestion.
+- `effortZoneThresholds(goal)` — whole-point zone boundaries.
+- `effortZone(points, goal)` — accessible zone label and display metadata.
 
 Move or replace the existing `pausedMs()` implementation so urgency and the Log
 model share one interval-merging definition rather than duplicating pause logic.
@@ -317,8 +347,8 @@ Cover at minimum:
 Check at narrow and typical phone widths, including safe areas:
 
 - Empty household and empty activity states.
-- One person below goal, at goal, and over goal.
-- Both people over goal and an over-100% Together total.
+- One person in each zone, at the full scale, and over the full scale.
+- Both people green and an over-100% Together total.
 - Active household pause and each solo pause.
 - Gap exact match, overshoot, underfill, success, and hidden states.
 - Intro ordering on signed-out, newly signed-in, and already configured devices.
@@ -341,7 +371,8 @@ npm run build
 - Joint chores count full for each person everywhere.
 - Vacation pauses demonstrably freeze the correct tally.
 - Period boundaries never double-count completions.
-- The Log screen is readable without understanding the scoring implementation.
+- The Log screen makes each person's zone legible without requiring mental
+  arithmetic, and no success behavior still targets the full-bar value.
 - Gap suggestions are stable, relevant to chore urgency, and non-judgmental.
 - Existing bubble, health, cleaning-service, reset, backdating, authentication,
   sync, and time-machine behaviors continue to work.

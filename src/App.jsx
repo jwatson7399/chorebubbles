@@ -17,6 +17,8 @@ import {
 } from "./storage.js";
 import {
   bothStreak,
+  effortZone,
+  effortZoneThresholds,
   pausedDuration,
   pointsInActivePeriod,
   suggestCombo,
@@ -438,42 +440,78 @@ function Stepper({ label, value, min, max, onChange, format }) {
   );
 }
 
-function ProgressRow({ label, points, goal, hue, paused = false, prominent = false }) {
+function ProgressRow({ label, points, goal, hue, paused = false, prominent = false, zoned = false }) {
   const safeGoal = Math.max(Number(goal) || 0, 1);
   const percent = Math.max(0, Math.min((points / safeGoal) * 100, 100));
-  const complete = points >= safeGoal;
+  const zone = zoned ? effortZone(points, safeGoal) : null;
+  const complete = zoned ? zone.key === "green" : points >= safeGoal;
+  const fillColor = zone?.color || hue;
 
   return (
-    <div style={{ padding: prominent ? "14px 0 12px" : "12px 0" }}>
+    <div style={{ padding: prominent ? "14px 0 12px" : "12px 0", opacity: paused ? 0.72 : 1 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 7 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flexWrap: "wrap" }}>
           <span style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: prominent ? 18 : 16, fontWeight: 700, color: "#E8F3F4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {label}
           </span>
           {paused && <span style={{ color: "#9FD4EA", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>🏖 away</span>}
+          {zone && (
+            <span
+              key={zone.key}
+              style={{
+                color: zone.color,
+                background: `${zone.color}18`,
+                border: `1px solid ${zone.color}66`,
+                borderRadius: 999,
+                padding: "2px 7px",
+                fontSize: 10.5,
+                lineHeight: 1.2,
+                fontWeight: 800,
+                whiteSpace: "nowrap",
+                animation: zone.key === "green" ? "greenArrival 0.7s ease-out" : "none",
+              }}
+            >
+              {zone.key === "green" ? "● " : ""}{zone.label}
+            </span>
+          )}
         </div>
         <span style={{ color: complete ? "#5FE0BB" : paused ? "#9FD4EA" : "#B9D2D8", fontSize: prominent ? 16 : 14, fontWeight: 700, whiteSpace: "nowrap" }}>
-          {points} / {goal}{complete ? " 🎉" : ""}
+          {points} / {goal}{zoned && complete ? " 🌱" : !zoned && complete ? " ✓" : ""}
         </span>
       </div>
       <div
         role="progressbar"
-        aria-label={`${label}: ${points} of ${goal} points${paused ? ", away" : ""}`}
+        aria-label={`${label}: ${points} of ${goal} points${zone ? `, ${zone.label} zone` : ""}${paused ? ", away" : ""}`}
         aria-valuemin={0}
         aria-valuemax={safeGoal}
         aria-valuenow={Math.min(points, safeGoal)}
-        style={{ height: prominent ? 13 : 11, borderRadius: 8, background: "#0F2530", border: "1px solid #1E4152", overflow: "hidden" }}
+        style={{
+          position: "relative",
+          height: prominent ? 13 : 12,
+          borderRadius: 8,
+          background: zoned
+            ? "linear-gradient(to right, #FF8B7B30 0 40%, #FFC65E30 40% 80%, #5FE0BB30 80% 100%)"
+            : "#0F2530",
+          border: "1px solid #1E4152",
+          overflow: "hidden",
+        }}
       >
         <div
           style={{
             width: `${percent}%`,
             height: "100%",
             borderRadius: 8,
-            background: `linear-gradient(to right, ${hue}99, ${hue})`,
-            boxShadow: complete ? `0 0 12px ${hue}88` : "none",
-            transition: "width 0.7s ease",
+            background: `linear-gradient(to right, ${fillColor}99, ${fillColor})`,
+            boxShadow: complete ? `0 0 12px ${fillColor}88` : "none",
+            transition: "width 0.7s ease, background 0.35s ease",
           }}
         />
+        {zoned && (
+          <>
+            <div aria-hidden="true" style={{ position: "absolute", inset: "0 auto 0 40%", width: 1, background: "#D8E9EC55" }} />
+            <div aria-hidden="true" style={{ position: "absolute", inset: "0 auto 0 80%", width: 1, background: "#D8E9EC88" }} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -533,15 +571,16 @@ export default function ChoreBubbles() {
     const bPaused = housePaused || soloBPaused;
     const pointsA = weeklyPoints(view.completions, "a", pauses, at);
     const pointsB = weeklyPoints(view.completions, "b", pauses, at);
+    const { greenMin } = effortZoneThresholds(goal);
     const previousA = pointsInActivePeriod(view.completions, "a", pauses, at, 1);
     const previousB = pointsInActivePeriod(view.completions, "b", pauses, at, 1);
-    const streak = bothStreak(view.completions, goal, pauses, at);
+    const streak = bothStreak(view.completions, greenMin, pauses, at);
     const urgencyById = Object.fromEntries(
       view.chores.map((chore) => [chore.id, urgencyOf(chore, view.completions, pauses)])
     );
     const myPoints = me === "b" ? pointsB : pointsA;
     const myPaused = me === "b" ? bPaused : aPaused;
-    const gap = Math.max(0, goal - myPoints);
+    const gap = Math.max(0, greenMin - myPoints);
     const suggestion = me && !myPaused && gap > 0
       ? suggestCombo(view.chores, gap, urgencyById, suggestionSeed)
       : null;
@@ -549,6 +588,7 @@ export default function ChoreBubbles() {
     return {
       pauses,
       goal,
+      greenMin,
       housePaused,
       soloAPaused,
       soloBPaused,
@@ -889,6 +929,7 @@ export default function ChoreBubbles() {
   const {
     pauses,
     goal,
+    greenMin,
     housePaused,
     soloAPaused,
     soloBPaused,
@@ -912,12 +953,12 @@ export default function ChoreBubbles() {
   const togetherGoal = goal * 2;
   const previousRecap = !previousHasActivity
     ? ""
-    : previousA >= goal && previousB >= goal
-    ? "Previous 7 days: both hit goal 🎉"
-    : previousA >= goal
-    ? `Previous 7 days: ${settings.nameA} hit the goal`
-    : previousB >= goal
-    ? `Previous 7 days: ${settings.nameB} hit the goal`
+    : previousA >= greenMin && previousB >= greenMin
+    ? "Previous 7 days: both stayed green 🌱"
+    : previousA >= greenMin
+    ? `Previous 7 days: ${settings.nameA} was green`
+    : previousB >= greenMin
+    ? `Previous 7 days: ${settings.nameB} was green`
     : `Previous 7 days: ${previousA + previousB} points together`;
 
   const impLabel = (v) => ["", "Low", "Mild", "Medium", "High", "Critical"][v];
@@ -930,6 +971,7 @@ export default function ChoreBubbles() {
         @keyframes pop { 0%{transform:scale(1.15)} 45%{transform:scale(0.82)} 100%{transform:scale(1)} }
         @keyframes sparkleUp { 0%{opacity:1; transform:translateY(0) scale(0.7)} 100%{opacity:0; transform:translateY(-26px) scale(1.25)} }
         @keyframes barSwell { 0%{transform:scaleY(1)} 25%{transform:scaleY(1.9)} 55%{transform:scaleY(1.25)} 100%{transform:scaleY(1)} }
+        @keyframes greenArrival { 0%{transform:scale(0.82); box-shadow:0 0 0 #5FE0BB00} 55%{transform:scale(1.08); box-shadow:0 0 14px #5FE0BB66} 100%{transform:scale(1); box-shadow:0 0 0 #5FE0BB00} }
         @keyframes wilt { 0%,100%{transform:rotate(-6deg) translateY(1px)} 50%{transform:rotate(-10deg) translateY(3px)} }
         @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
         * { box-sizing: border-box; margin: 0; }
@@ -1032,7 +1074,7 @@ export default function ChoreBubbles() {
         <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px 26px" }}>
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 23, fontWeight: 700, marginTop: 4 }}>Last 7 days</div>
           <div style={{ color: "#7FA3AC", fontSize: 13, lineHeight: 1.4, marginBottom: 12 }}>
-            What you&apos;ve each done over your last 7 active days. Aim for {goal} points.
+            What you&apos;ve each done over your last 7 active days. Keep it in the green.
           </div>
 
           <div style={{ background: "linear-gradient(145deg, #173746, #122B37)", border: "1px solid #245064", borderRadius: 18, padding: "0 16px 12px", marginBottom: 12 }}>
@@ -1047,22 +1089,25 @@ export default function ChoreBubbles() {
           </div>
 
           <div style={{ background: "#102733", border: "1px solid #1A3B49", borderRadius: 18, padding: "2px 16px", marginBottom: 12 }}>
-            <ProgressRow label={settings.nameA} points={pointsA} goal={goal} hue="#6FC3FF" paused={aPaused} />
+            <ProgressRow label={settings.nameA} points={pointsA} goal={goal} hue="#6FC3FF" paused={aPaused} zoned />
             <div style={{ height: 1, background: "#1A3B49" }} />
-            <ProgressRow label={settings.nameB} points={pointsB} goal={goal} hue="#FF9FC0" paused={bPaused} />
+            <ProgressRow label={settings.nameB} points={pointsB} goal={goal} hue="#FF9FC0" paused={bPaused} zoned />
+            <div style={{ color: "#7FA3AC", fontSize: 11.5, textAlign: "center", padding: "2px 0 12px" }}>
+              Full scale: {goal} points · Green starts at {greenMin}
+            </div>
           </div>
 
           {me && !myPaused && (
             <div style={{ background: gap === 0 ? "#153D35" : "#2B2A19", border: `1px solid ${gap === 0 ? "#297261" : "#5B5327"}`, borderRadius: 18, padding: 16, marginBottom: 16 }}>
               {gap === 0 ? (
                 <>
-                  <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, color: "#5FE0BB" }}>You hit your goal for the last 7 days! 🎉</div>
+                  <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, color: "#5FE0BB" }}>Your tally is in the green! 🌱</div>
                   <div style={{ fontSize: 12, color: "#A8CFC5", marginTop: 3 }}>Nice work keeping the household moving.</div>
                 </>
               ) : (
                 <>
                   <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, color: "#FFC65E" }}>
-                    You&apos;re {gap} point{gap === 1 ? "" : "s"} from your goal 🎯
+                    You&apos;re {gap} point{gap === 1 ? "" : "s"} from green 🎯
                   </div>
                   {suggestion ? (
                     <>
@@ -1170,7 +1215,10 @@ export default function ChoreBubbles() {
           </div>
 
           <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Household settings</div>
-          <Stepper label="Weekly effort goal (points)" value={settings.weeklyGoal} min={4} max={40} onChange={(v) => commit({ type: "settings:patch", patch: { weeklyGoal: v } })} />
+          <Stepper label="Effort scale (full bar)" value={settings.weeklyGoal} min={4} max={40} onChange={(v) => commit({ type: "settings:patch", patch: { weeklyGoal: v } })} />
+          <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "-4px 0 8px" }}>
+            Green begins at {greenMin} points. The full bar is a reference, not a cutoff.
+          </div>
           <NameEditor settings={settings} onSave={(nameA, nameB) => commit({ type: "settings:patch", patch: { nameA, nameB } })} />
           <button onClick={() => setAskWho(true)} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", marginTop: 12, border: "1px solid #1E4152", fontSize: 13 }}>
             This phone belongs to: {me === "a" ? settings.nameA : me === "b" ? settings.nameB : "?"} (change)
@@ -1249,7 +1297,7 @@ export default function ChoreBubbles() {
           <div style={{ display: "flex", flexDirection: "column", gap: 12, color: "#D7E7EA", fontSize: 14, lineHeight: 1.45, marginBottom: 20 }}>
             <div><strong style={{ color: "#5FE0BB" }}>1.</strong> Bubbles grow as chores become due.</div>
             <div><strong style={{ color: "#5FE0BB" }}>2.</strong> Tap a bubble when a chore is done.</div>
-            <div><strong style={{ color: "#5FE0BB" }}>3.</strong> What you do stays in your tally for seven active days. Aim for {goal} points.</div>
+            <div><strong style={{ color: "#5FE0BB" }}>3.</strong> What you do stays in your tally for seven active days. Keep your effort in the green.</div>
           </div>
           <button onClick={dismissIntro} style={{ ...btnStyle("#5FE0BB"), width: "100%" }}>Got it</button>
         </Modal>

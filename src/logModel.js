@@ -1,6 +1,28 @@
 const DAY = 86400000;
 const PERIOD = 7 * DAY;
 
+export function effortZoneThresholds(goal) {
+  const fullScale = Math.max(1, Math.round(Number(goal) || 1));
+  return {
+    fullScale,
+    buildingMin: Math.ceil(fullScale * 0.4),
+    greenMin: Math.ceil(fullScale * 0.8),
+  };
+}
+
+export function effortZone(points, goal) {
+  const thresholds = effortZoneThresholds(goal);
+  const total = Math.max(0, Number(points) || 0);
+
+  if (total >= thresholds.greenMin) {
+    return { key: "green", label: "Green", color: "#5FE0BB", ...thresholds };
+  }
+  if (total >= thresholds.buildingMin) {
+    return { key: "building", label: "Building", color: "#FFC65E", ...thresholds };
+  }
+  return { key: "starting", label: "Getting started", color: "#FF8B7B", ...thresholds };
+}
+
 // Milliseconds in [from, to] covered by pauses matching any requested scope.
 // Intervals are merged so overlapping household and solo pauses count once.
 export function pausedDuration(pauses, scopes, from, to) {
