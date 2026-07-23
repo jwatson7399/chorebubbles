@@ -9,7 +9,7 @@ The installable PWA runs full-screen from each phone and securely syncs shared s
 - Bubble field with gentle physics, drag to rearrange, tap to complete
 - Importance, difficulty, and goal frequency per chore
 - Last-done banners and complete per-chore activity histories
-- Per-person rolling seven-active-day effort tallies with visible Getting started, Building, and Green zones
+- Per-person rolling seven-active-day effort tallies with visible Getting started, Maintaining, and Ideal zones
 - Full credit for both people on joint completions
 - Goal-closing chore suggestions that prioritize due and approaching-due work
 - Previous-period recap, household total, and shared streak
