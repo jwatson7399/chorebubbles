@@ -30,7 +30,11 @@ import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
 // Bubbles swell as chores go undone. Tap to complete, drag to rearrange.
 
 
-const HUES = ["#FF8B7B", "#FFC65E", "#5FE0BB", "#C7A5F7", "#6FC3FF", "#FF9FC0", "#9BE087", "#FFB38A"];
+const HUES = [
+  "#FF8B7B", "#FFB38A", "#FFC65E", "#FFE07D", "#9BE087", "#5FE0BB",
+  "#57D0D8", "#6FC3FF", "#7FA0FF", "#C7A5F7", "#E29BF0", "#FF9FC0",
+  "#FF7EA8", "#B5E86F", "#8AD9C0", "#F7B267",
+];
 
 const STARTERS = [
   { name: "Dishes", importance: 4, difficulty: 1, freqDays: 1, service: false },
@@ -356,11 +360,11 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
               width: n.r * 2,
               height: n.r * 2,
               borderRadius: "50%",
-              background: `radial-gradient(circle at 32% 30%, ${n.hue}F5, ${n.hue}AA 60%, ${n.hue}66)`,
+              background: `radial-gradient(circle at 31% 26%, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.07) 10%, rgba(255,255,255,0) 28%), radial-gradient(circle at 72% 82%, ${n.hue}55 0%, rgba(255,255,255,0) 58%), radial-gradient(circle at 46% 44%, ${n.hue}FA 0%, ${n.hue}DA 52%, ${n.hue}96 100%)`,
               boxShadow: due
-                ? `0 0 ${overdue ? 26 : 14}px ${n.hue}${overdue ? "AA" : "66"}, inset 0 0 12px rgba(255,255,255,0.25)`
-                : `inset 0 0 10px rgba(255,255,255,0.18)`,
-              border: due ? `2px solid ${n.hue}` : `1.5px solid ${n.hue}66`,
+                ? `0 0 ${overdue ? 28 : 15}px ${n.hue}${overdue ? "99" : "55"}, inset 0 3px 7px rgba(255,255,255,0.2), inset 0 -8px 13px ${n.hue}4D`
+                : `inset 0 3px 7px rgba(255,255,255,0.14), inset 0 -7px 11px ${n.hue}3D`,
+              border: due ? `2px solid ${n.hue}` : `1.5px solid rgba(255,255,255,0.28)`,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -372,24 +376,50 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
               zIndex: dragRef.current && dragRef.current.id === n.id ? 5 : 1,
             }}
           >
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: "15%",
+                left: "20%",
+                width: "24%",
+                height: "17%",
+                borderRadius: "50%",
+                background: "radial-gradient(circle at 42% 42%, rgba(255,255,255,0.36), rgba(255,255,255,0) 74%)",
+                transform: "rotate(-18deg)",
+                pointerEvents: "none",
+              }}
+            />
             {popId === n.id && (
               <span style={{ position: "absolute", top: -14, right: -6, fontSize: 20, animation: "sparkleUp 0.9s ease-out forwards", pointerEvents: "none" }}>✨</span>
             )}
-            <span
-              style={{
-                fontFamily: "'Baloo 2', sans-serif",
-                fontWeight: 600,
-                fontSize: Math.max(9, Math.min(n.r * 0.3, 16)),
-                color: "#0C1B26",
-                textAlign: "center",
-                lineHeight: 1.12,
-                padding: 5,
-                overflow: "hidden",
-                pointerEvents: "none",
-              }}
-            >
-              {n.chore.name}
-            </span>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, padding: 4, overflow: "hidden", pointerEvents: "none" }}>
+              <span
+                style={{
+                  fontFamily: "'Baloo 2', sans-serif",
+                  fontWeight: 600,
+                  fontSize: Math.max(9, Math.min(n.r * 0.3, 16)),
+                  color: "#0C1B26",
+                  textAlign: "center",
+                  lineHeight: 1.12,
+                }}
+              >
+                {n.chore.name}
+              </span>
+              <span
+                style={{
+                  fontFamily: "'Baloo 2', sans-serif",
+                  fontWeight: 800,
+                  fontSize: Math.max(8, Math.min(n.r * 0.22, 12)),
+                  color: "#0C1B26",
+                  opacity: 0.55,
+                  lineHeight: 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {n.chore.difficulty} pt{n.chore.difficulty === 1 ? "" : "s"}
+              </span>
+            </div>
           </div>
         );
       })}
@@ -435,6 +465,79 @@ function Stepper({ label, value, min, max, onChange, format }) {
         <button onClick={() => onChange(Math.max(min, value - 1))} style={{ ...btnStyle("#0F2530", "#5FE0BB"), padding: "6px 14px", fontSize: 18 }}>-</button>
         <span style={{ color: "#E8F3F4", fontSize: 15, minWidth: 56, textAlign: "center", fontWeight: 600 }}>{format ? format(value) : value}</span>
         <button onClick={() => onChange(Math.min(max, value + 1))} style={{ ...btnStyle("#0F2530", "#5FE0BB"), padding: "6px 14px", fontSize: 18 }}>+</button>
+      </div>
+    </div>
+  );
+}
+
+// A full 1-N scale where every step is visible and tappable, so you can see
+// where your choice sits on the whole range instead of clicking a dial.
+function ScaleSelector({ label, hint, value, min, max, onChange, valueLabel, endLabels }) {
+  const options = [];
+  for (let i = min; i <= max; i++) options.push(i);
+  return (
+    <div style={{ padding: "12px 0" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+        <span style={{ color: "#E8F3F4", fontSize: 14, fontWeight: 600 }}>{label}</span>
+        {valueLabel && <span style={{ color: "#5FE0BB", fontSize: 13, fontWeight: 700 }}>{valueLabel(value)}</span>}
+      </div>
+      {hint && <div style={{ color: "#7FA3AC", fontSize: 11.5, marginTop: 2 }}>{hint}</div>}
+      <div style={{ display: "flex", gap: 6, marginTop: 9 }}>
+        {options.map((n) => {
+          const active = n === value;
+          return (
+            <button
+              key={n}
+              onClick={() => onChange(n)}
+              aria-pressed={active}
+              style={{
+                flex: 1,
+                padding: "11px 0",
+                borderRadius: 10,
+                border: active ? "none" : "1px solid #1E4152",
+                background: active ? "#5FE0BB" : "#0F2530",
+                color: active ? "#0C1B26" : "#B9D2D8",
+                fontFamily: "'Baloo 2', sans-serif",
+                fontWeight: 700,
+                fontSize: 15,
+                cursor: "pointer",
+                WebkitTapHighlightColor: "transparent",
+                transition: "background 0.15s ease, color 0.15s ease",
+              }}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </div>
+      {endLabels && (
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 5, color: "#7FA3AC", fontSize: 10.5 }}>
+          <span>{endLabels[0]}</span>
+          <span>{endLabels[1]}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Slim zoned bar for the Bubbles tab, so popping a bubble shows your tally move
+// without leaving the screen. The full breakdown still lives on the Log tab.
+function CompactBar({ name, points, goal, greenStart, paused = false }) {
+  const safeGoal = Math.max(Number(goal) || 0, 1);
+  const zone = effortZone(points, safeGoal, greenStart);
+  const percent = Math.max(0, Math.min((points / safeGoal) * 100, 100));
+  const greenPct = Math.round((zone.greenMin / zone.fullScale) * 100);
+  return (
+    <div style={{ flex: 1, minWidth: 0, opacity: paused ? 0.62 : 1 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6, marginBottom: 4 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#E8F3F4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {name}{paused ? " 🏖" : ""}
+        </span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: zone.color, whiteSpace: "nowrap" }}>{points}/{goal}</span>
+      </div>
+      <div style={{ position: "relative", height: 7, borderRadius: 5, background: "#0F2530", border: "1px solid #1E4152", overflow: "hidden" }}>
+        <div style={{ width: `${percent}%`, height: "100%", borderRadius: 5, background: zone.color, transition: "width 0.6s ease, background 0.3s ease" }} />
+        <div aria-hidden="true" style={{ position: "absolute", inset: `0 auto 0 ${greenPct}%`, width: 1, background: "#D8E9EC66" }} />
       </div>
     </div>
   );
@@ -975,6 +1078,7 @@ export default function ChoreBubbles() {
     : `Previous 7 days: ${previousA + previousB} points together`;
 
   const impLabel = (v) => ["", "Low", "Mild", "Medium", "High", "Critical"][v];
+  const effortLabel = (v) => ["", "Very easy", "Easy", "Moderate", "Hard", "Very hard"][v];
 
   return (
     <div style={{ height: "100dvh", display: "flex", flexDirection: "column", background: "radial-gradient(120% 100% at 50% 0%, #123240 0%, #0C1B26 70%)", fontFamily: "'Nunito Sans', sans-serif", color: "#E8F3F4", overflow: "hidden" }}>
@@ -1064,6 +1168,12 @@ export default function ChoreBubbles() {
       {/* Body */}
       {tab === "bubbles" && (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          {view.chores.length > 0 && (
+            <div style={{ display: "flex", gap: 16, alignItems: "flex-end", padding: "2px 20px 8px" }}>
+              <CompactBar name={settings.nameA} points={pointsA} goal={goal} greenStart={settings.greenStart} paused={aPaused} />
+              <CompactBar name={settings.nameB} points={pointsB} goal={goal} greenStart={settings.greenStart} paused={bPaused} />
+            </div>
+          )}
           {simDays > 0 && (
             <div style={{ margin: "4px 20px 0", padding: "9px 14px", background: "#3B3215", border: "1px solid #6E5C21", borderRadius: 12, fontSize: 13, color: "#FFC65E", textAlign: "center" }}>
               🧪 Time machine — tap bubbles to test. Nothing here is saved or shared.
@@ -1393,8 +1503,8 @@ export default function ChoreBubbles() {
             onChange={(e) => setEditChore({ ...editChore, name: e.target.value })}
             style={{ width: "100%", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 12, padding: "12px 14px", color: "#E8F3F4", fontSize: 15, fontFamily: "inherit", marginBottom: 6 }}
           />
-          <Stepper label="Importance" value={editChore.importance} min={1} max={5} onChange={(v) => setEditChore({ ...editChore, importance: v })} format={impLabel} />
-          <Stepper label="Effort points" value={editChore.difficulty} min={1} max={5} onChange={(v) => setEditChore({ ...editChore, difficulty: v })} />
+          <ScaleSelector label="Importance" hint="How much does it matter if this slips?" value={editChore.importance} min={1} max={5} onChange={(v) => setEditChore({ ...editChore, importance: v })} valueLabel={impLabel} endLabels={["Low", "Critical"]} />
+          <ScaleSelector label="Effort" hint="How hard is this chore?" value={editChore.difficulty} min={1} max={5} onChange={(v) => setEditChore({ ...editChore, difficulty: v })} valueLabel={effortLabel} endLabels={["Very easy", "Very hard"]} />
           <Stepper label="Goal frequency" value={editChore.freqDays} min={1} max={60} onChange={(v) => setEditChore({ ...editChore, freqDays: v })} format={(v) => `every ${v}d`} />
           <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", cursor: "pointer" }}>
             <input
