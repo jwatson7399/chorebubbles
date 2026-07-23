@@ -220,7 +220,7 @@ function historyDate(ts) {
 }
 
 // ---------- Bubble field ----------
-function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
+function BubbleField({ chores, completions, pauses, onTap, popId, simDays, suggestedIds }) {
   const wrapRef = useRef(null);
   const [size, setSize] = useState({ w: 360, h: 480 });
   const [nodes, setNodes] = useState([]);
@@ -373,9 +373,14 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
       {nodes.map((n) => {
         const due = n.urgency >= 1;
         const overdue = n.urgency >= 1.5;
+        const suggested = suggestedIds?.has(n.id);
+        const bubbleShadow = due
+          ? `0 0 ${overdue ? 26 : 14}px ${n.hue}${overdue ? "AA" : "66"}, inset 0 0 12px rgba(255,255,255,0.25)`
+          : "inset 0 0 10px rgba(255,255,255,0.18)";
         return (
           <div
             key={n.id}
+            aria-label={`${n.chore.name}, ${n.chore.difficulty} point${n.chore.difficulty === 1 ? "" : "s"}${suggested ? ", suggested chore" : ""}`}
             onPointerDown={(e) => onPointerDown(e, n)}
             onPointerMove={(e) => onPointerMove(e, n)}
             onPointerUp={(e) => onPointerUp(e, n)}
@@ -389,9 +394,11 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
               height: n.r * 2,
               borderRadius: "50%",
               background: `radial-gradient(circle at 32% 30%, ${n.hue}F5, ${n.hue}AA 60%, ${n.hue}66)`,
-              boxShadow: due
-                ? `0 0 ${overdue ? 26 : 14}px ${n.hue}${overdue ? "AA" : "66"}, inset 0 0 12px rgba(255,255,255,0.25)`
-                : `inset 0 0 10px rgba(255,255,255,0.18)`,
+              boxShadow: suggested
+                ? `${bubbleShadow}, 0 0 0 3px #FFD95A, 0 0 22px #FFD95ADD, 0 0 42px #FFD95A88`
+                : bubbleShadow,
+              outline: suggested ? "2px solid #FFF0A6" : "none",
+              outlineOffset: suggested ? 3 : 0,
               border: due ? `2px solid ${n.hue}` : `1.5px solid ${n.hue}66`,
               display: "flex",
               alignItems: "center",
@@ -400,8 +407,8 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
               userSelect: "none",
               WebkitTapHighlightColor: "transparent",
               animation: popId === n.id ? `pop 0.65s ease-out` : `breathe ${overdue ? 2.2 : 3.6}s ease-in-out infinite`,
-              transition: "width 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), height 0.7s cubic-bezier(0.34, 1.4, 0.5, 1)",
-              zIndex: dragRef.current && dragRef.current.id === n.id ? 5 : 1,
+              transition: "width 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), height 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), box-shadow 0.35s ease, outline-color 0.35s ease",
+              zIndex: dragRef.current && dragRef.current.id === n.id ? 5 : suggested ? 3 : 1,
             }}
           >
             {popId === n.id && (
@@ -540,6 +547,7 @@ function CompactBar({ name, points, goal, greenStart, paused = false }) {
   const safeGoal = Math.max(Number(goal) || 0, 1);
   const zone = effortZone(points, safeGoal, greenStart);
   const percent = Math.max(0, Math.min((points / safeGoal) * 100, 100));
+  const buildingPct = Math.round((zone.buildingMin / zone.fullScale) * 100);
   const greenPct = Math.round((zone.greenMin / zone.fullScale) * 100);
   return (
     <div style={{ flex: 1, minWidth: 0, opacity: paused ? 0.62 : 1 }}>
@@ -549,9 +557,11 @@ function CompactBar({ name, points, goal, greenStart, paused = false }) {
         </span>
         <span style={{ fontSize: 11, fontWeight: 700, color: zone.color, whiteSpace: "nowrap" }}>{points}/{goal}</span>
       </div>
-      <div style={{ position: "relative", height: 7, borderRadius: 5, background: "#0F2530", border: "1px solid #1E4152", overflow: "hidden" }}>
+      <div aria-hidden="true" style={{ textAlign: "center", fontSize: 11, lineHeight: 1, marginBottom: 2 }}>{zone.emoji}</div>
+      <div style={{ position: "relative", height: 7, borderRadius: 5, background: `linear-gradient(to right, #FF8B7B30 0 ${buildingPct}%, #FFC65E30 ${buildingPct}% ${greenPct}%, #5FE0BB30 ${greenPct}% 100%)`, border: "1px solid #1E4152", overflow: "hidden" }}>
         <div style={{ width: `${percent}%`, height: "100%", borderRadius: 5, background: zone.color, transition: "width 0.6s ease, background 0.3s ease" }} />
-        <div aria-hidden="true" style={{ position: "absolute", inset: `0 auto 0 ${greenPct}%`, width: 1, background: "#D8E9EC66" }} />
+        <div aria-hidden="true" style={{ position: "absolute", inset: `0 auto 0 ${buildingPct}%`, width: 1, background: "#D8E9EC55" }} />
+        <div aria-hidden="true" style={{ position: "absolute", inset: `0 auto 0 ${greenPct}%`, width: 1, background: "#D8E9EC88" }} />
       </div>
     </div>
   );
@@ -662,6 +672,7 @@ export default function ChoreBubbles() {
   const [simOpen, setSimOpen] = useState(false);
   const [introOpen, setIntroOpen] = useState(false);
   const [suggestionSeed, setSuggestionSeed] = useState(0);
+  const [bubbleSuggestionsVisible, setBubbleSuggestionsVisible] = useState(false);
   const [healthPulse, setHealthPulse] = useState(false);
   const prevHealthRef = useRef(null);
   const pulseTimer = useRef(null);
@@ -1083,6 +1094,15 @@ export default function ChoreBubbles() {
     view.chores.map((chore) => [chore.id, choreHistoryFor(view.completions, chore.id)])
   );
   const editChoreHistory = editChore?.id ? choreHistories.get(editChore.id) || [] : [];
+  const suggestedBubbleIds = new Set(
+    bubbleSuggestionsVisible && suggestion ? suggestion.chores.map((chore) => chore.id) : []
+  );
+  const canShuffleSuggestions = !!suggestion && !myPaused && view.chores.length > 0;
+  const shuffleSuggestions = () => {
+    if (!canShuffleSuggestions) return;
+    setBubbleSuggestionsVisible(true);
+    setSuggestionSeed((seed) => seed + 1);
+  };
   const togetherPoints = pointsA + pointsB;
   const togetherGoal = goal * 2;
   const previousRecap = !previousHasActivity
@@ -1202,8 +1222,22 @@ export default function ChoreBubbles() {
               🏖 Household paused. Bubbles are frozen until you resume.
             </div>
           )}
-          <BubbleField chores={view.chores} completions={view.completions} pauses={pauses} onTap={(ch) => { setTapWhenDays(0); setTapChore(ch); }} popId={popId} simDays={simDays} />
-          <div style={{ padding: "0 20px 10px" }}>
+          <BubbleField chores={view.chores} completions={view.completions} pauses={pauses} onTap={(ch) => { setTapWhenDays(0); setTapChore(ch); }} popId={popId} simDays={simDays} suggestedIds={suggestedBubbleIds} />
+          <div style={{ padding: "0 20px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
+            <button
+              disabled={!canShuffleSuggestions}
+              onClick={shuffleSuggestions}
+              aria-pressed={bubbleSuggestionsVisible && suggestedBubbleIds.size > 0}
+              aria-label="Shuffle chore suggestions to reach the green zone"
+              style={{
+                ...btnStyle(bubbleSuggestionsVisible && suggestedBubbleIds.size > 0 ? "#3B3415" : "#0F2530", "#FFE27A"),
+                width: "100%",
+                border: `1px solid ${bubbleSuggestionsVisible && suggestedBubbleIds.size > 0 ? "#C9A92C" : "#554B25"}`,
+                opacity: canShuffleSuggestions ? 1 : 0.45,
+              }}
+            >
+              🎲 Shuffle chore suggestions
+            </button>
             <button onClick={openService} style={{ ...btnStyle("#0F2530", "#5FE0BB"), width: "100%", border: "1px solid #1E4152" }}>
               🧹 Cleaning service came
             </button>
@@ -1261,7 +1295,7 @@ export default function ChoreBubbles() {
                           : `This gets you ${suggestion.total} points closer`}
                       </div>
                       <button
-                        onClick={() => setSuggestionSeed((seed) => seed + 1)}
+                        onClick={shuffleSuggestions}
                         style={{ ...btnStyle("transparent", "#FFC65E"), padding: "8px 0 0", fontSize: 13 }}
                       >
                         🎲 Shuffle ideas
