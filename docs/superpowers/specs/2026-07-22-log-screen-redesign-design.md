@@ -1,116 +1,356 @@
-# Log Screen Redesign — Design
+# Log Screen Redesign — Final Implementation Spec
 
 Date: 2026-07-22
-Status: Approved (pending spec review)
+Status: Implemented
 
 ## Goal
 
-Make the Log screen easy to digest for a non-technical household member, replace
-the confusing decay/"half-life" mechanic with something explainable in one
-sentence, and add a helper that shows how to reach the weekly effort goal.
+Make the Log screen immediately understandable to a non-technical household
+member, replace the decay/"half-life" mechanic with a plain rolling tally, and
+help each person see a useful path toward the shared weekly effort goal.
 
-## Core mechanic change: rolling 7-day tally (replaces decay)
+The tone should stay cooperative: the household is working together against the
+mess. The screen should inform and encourage without judging either person.
 
-Today each person's effort score is an exponentially decaying sum ("half-life"),
-which produces drifting decimals and drops even on idle days — impossible to
-explain without science framing.
+## Final product decisions
 
-**New model:** a person's weekly points = the sum of their chore effort values
-completed in the **last 7 days** (a rolling window ending "now"). Whole numbers,
-no decay. A chore counts for 7 days, then cleanly drops off.
+- Effort uses a rolling seven-active-day tally instead of exponential decay.
+- A joint chore awards its full effort value to each person.
+- Vacation pauses continue to freeze the affected person's tally.
+- The screen says "Last 7 days," not "This week," because the period is rolling
+  rather than calendar-aligned.
+- The prior-period recap says "Previous 7 days," not "Last week."
+- Gap-closer suggestions prioritize chores that are due or approaching due.
+- The gap-closer is hidden while the household or this phone's person is paused.
+- Intro state is device-local and versioned.
+- Service and board-reset events reset bubbles but never award effort.
 
-- Plain-language subtitle replaces the half-life line:
-  *"What you've each done in the last 7 days. Aim for 14 points a week."*
-- Footnote: *"Chores you do together count full for both of you."*
-- **Joint chores now count full effort for each person** (was half each). This
-  removes fractional displays like "+1.5 each", rewards doing chores together,
-  and keeps every number whole. Activity log shows "+3 each" style.
-- `decayedPoints()` and the `halfLifeDays` setting/ stepper are removed. The
-  `weeklyGoal` setting stays.
+## Core mechanic: rolling seven active days
 
-## Layout (top to bottom, Log tab)
+A person's current points equal the sum of eligible effort completed during
+their last seven **active** days.
 
-```
-  This week
-  What you've each done in the last 7 days
+Eligible credit:
 
-  Together        21 / 28  🤝            <- teamwork total (A+B / 2*goal)
-  Last week: both hit goal 🎉 · 🔥 3-week streak   <- recap line (see below)
+- `by === who`: full `difficulty` points.
+- `by === "joint"`: full `difficulty` points for each person.
+- `by === "service"` or `by === "reset"`: zero points.
+- Future-dated events relative to the supplied `at` time: zero points.
 
-  Julian                     9 / 14
+An event remains in the current tally while its effective age is less than seven
+days. Effective age is wall-clock elapsed time minus the union of pauses that
+apply to that person:
+
+- Household pauses apply to both people.
+- A solo pause applies only to that person.
+- Overlapping household and solo pauses are counted once.
+
+This preserves the existing vacation promise: while a person is paused, their
+points do not age out. After resuming, the seven-day countdown continues where
+it left off. Chores completed during an active pause begin aging after the pause
+ends, matching the current decay behavior.
+
+Use non-overlapping effective-age periods:
+
+- Current period: `0 <= effectiveAge < 7d`
+- Previous period: `7d <= effectiveAge < 14d`
+- Period `n`: `n*7d <= effectiveAge < (n+1)*7d`
+
+These half-open boundaries ensure an event can never count in two periods.
+
+User-facing explanation:
+
+> What you've each done over your last 7 active days. Aim for {goal} points.
+
+Footnotes:
+
+> Chores you do together count full for both of you.
+
+> Vacation mode freezes your tally while you're away.
+
+The existing `halfLifeDays` value may remain in previously stored JSON for
+backward compatibility, but it is no longer read, displayed, or written by the
+app. No database migration is required.
+
+## Log screen layout
+
+Top-to-bottom layout:
+
+```text
+  Last 7 days
+  What you've each done over your last 7 active days
+
+  Together                         21 / 28  🤝
+  ▰▰▰▰▰▰▰▰▰▰▱▱▱▱
+  Previous 7 days: both hit goal 🎉 · 🔥 3-period streak
+
+  Julian                            9 / 14
   ▰▰▰▰▰▰▰▰▰▱▱▱▱▱
 
-  Kristine  🏖 away
+  Kristine  🏖 away                 6 / 14
   ▰▰▰▰▰▰▱▱▱▱▱▱▱▱
 
-  ┌────────────────────────────────────┐
-  │  You're 5 points from your goal 🎯  │   <- gap-closer, for THIS phone's person
-  │  Try: Bathroom clean (3) + Dishes   │
-  │       (1) + Trash (1)         = 5   │
-  │            🎲 shuffle ideas          │
-  └────────────────────────────────────┘
+  ┌────────────────────────────────────────┐
+  │  You're 5 points from your goal 🎯     │
+  │  Try: Bathroom clean (3) + Laundry (2) │
+  │                              = 5 points │
+  │                    🎲 Shuffle ideas     │
+  └────────────────────────────────────────┘
 
   Recent activity
-  Dishes        Julian · 2h ago       +1
-  Laundry       Together · yesterday  +1 each
-  🧹 Bathroom   Cleaning service · 2d  reset
+  Dishes        Julian · 2h ago          +1
+  Laundry       Together · yesterday     +2 each
+  🧹 Bathroom   Cleaning service · 2d    reset
 ```
 
-### Components
+All progress bars retain a numeric `points / goal` label. Color is supportive,
+not the only way progress or pause state is communicated.
 
-1. **Teamwork total** — `Together  {ptsA + ptsB} / {2 * weeklyGoal} 🤝`, with a
-   combined progress bar. Frames the screen as us-vs-the-mess. Household total is
-   defined as the sum of the two individual bars (internally consistent).
+## Components and behavior
 
-2. **Last-week recap + streak** (computed from history, no stored state):
-   - Last week = points in the window `[now-14d, now-7d)` per person.
-   - Recap line summarizes: both hit goal / who hit goal last week.
-   - Streak = count of consecutive completed 7-day windows (last week and earlier)
-     in which BOTH people met the goal. Shown only when streak ≥ 2 (`🔥 N-week
-     streak`). Walk back week-by-week over completions until a week misses.
+### 1. Together total
 
-3. **Per-person bars** — horizontal progress bar + `points / goal` for each
-   person (replaces the two tall vertical columns). Paused person (solo or
-   household pause active) shows a `🏖 away` badge and is not styled as
-   under-goal.
+Display:
 
-4. **Gap-closer card** — for this phone's person (`me`):
-   - `gap = max(0, weeklyGoal - myWeeklyPoints)`.
-   - If `gap === 0`: celebratory "You hit your goal this week! 🎉".
-   - Else: pick a random combo of the household's chores whose effort values sum
-     to `gap` (exact if possible, else smallest overshoot). Render as
-     `Chore (d) + Chore (d) … = sum`. A 🎲 button reshuffles to a new combo.
-   - If `me` is unknown, hide the card.
+`Together  {pointsA + pointsB} / {2 * weeklyGoal}  🤝`
 
-5. **Recent activity** — unchanged behavior, kept as-is (already readable).
+The total is deliberately the sum of the two individual tallies. A three-point
+joint chore therefore adds six to the Together total—three to each person. The
+full-for-both footnote makes this rule explicit.
 
-## What's unaffected
+Use one horizontal progress bar capped visually at 100%; keep the uncapped
+numeric total visible when the household exceeds its goal.
 
-Bubbles, urgency/growth, health bar, vacation pauses (as a mechanic), cleaning
-service, reset, backdating, and the time-machine sandbox are all unchanged. This
-work is contained to the Log tab, the points-calculation helpers, and the
-Household-settings stepper list.
+### 2. Previous-period recap and streak
 
-## Implementation outline (all in `src/App.jsx`)
+The previous period is effective-age period `1` for each person. Because solo
+vacations can freeze one timeline, "Previous 7 days" means each person's
+previous seven active days, not a shared calendar date range.
 
-- Add `weeklyPoints(completions, who, at)` — sum of effort in `[at-7d, at]` where
-  `by === who` or `by === "joint"` (joint = full effort).
-- Add `pointsInWindow(completions, who, from, to)` helper (used by weekly + last
-  week + streak).
-- Add `bothStreak(completions, goal, at)` — consecutive prior 7-day windows where
-  both meet goal.
-- Add `suggestCombo(chores, gap)` — randomized combo summing to gap; reshuffled
-  via a state seed.
-- Replace `decayedPoints` usages: `ptsA/ptsB` now use `weeklyPoints`.
-- Rewrite the `tab === "log"` block per the layout above; keep `Column` only if
-  reused, otherwise replace with a horizontal `Bar` component.
-- Remove the "Decay half-life (days)" `Stepper` from Household settings.
-- First-run "how it works" card: a one-time `Modal` gated by a
-  `localStorage` flag (`chorebubbles:seenIntro`), three plain sentences
-  (bubbles grow → tap to pop → hit 14 points a week). Shown on first load.
+Recap states:
 
-## Out of scope (deferred)
+- Both met goal: `Previous 7 days: both hit goal 🎉`
+- Only A met goal: `Previous 7 days: {nameA} hit the goal`
+- Only B met goal: `Previous 7 days: {nameB} hit the goal`
+- Neither met goal but activity exists:
+  `Previous 7 days: {combinedPoints} points together`
+- No eligible activity exists: hide the recap.
 
-- Gentle balance/fairness note (declined — friction risk).
-- Making gap-closer suggestions one-tap loggable from the card.
-- Configurable per-person goals (single shared `weeklyGoal` stays).
+The streak is the number of consecutive completed effective-age periods,
+starting at period `1`, in which both people reached `weeklyGoal`. Stop at the
+first missed period. Do not inspect periods older than the earliest eligible
+completion. Show only streaks of at least two:
+
+`🔥 {n}-period streak`
+
+"Period" is intentionally used instead of "week" because pauses can extend a
+person's seven active days beyond seven calendar days.
+
+### 3. Per-person progress
+
+Replace the two tall columns with compact horizontal progress rows:
+
+- Person's name.
+- `🏖 away` badge when their solo pause or the household pause is active.
+- Integer `points / goal`.
+- Horizontal bar, visually capped at 100%.
+- Celebration marker when the goal is reached.
+
+A paused person is never styled as behind or under-goal. Their points remain
+visible and frozen.
+
+### 4. Gap-closer card
+
+The card is for this phone's selected person (`me`).
+
+Visibility:
+
+- Hide when `me` is unknown.
+- Hide while the household or `me` is actively paused.
+- Show a success state when `gap === 0`:
+  `You hit your goal for the last 7 days! 🎉`
+- Otherwise show the current gap and a chore suggestion.
+
+Suggestion candidates:
+
+- Use each chore at most once in a suggestion.
+- Prefer chores whose urgency is at or above `0.75`.
+- If that leaves no useful combination, fall back to all chores.
+- Never include service/reset log entries; suggestions are based on the current
+  chore list only.
+- Limit the displayed combination to one through three chores.
+
+Rank combinations in this order:
+
+1. Exact match to the gap.
+2. Smallest overshoot.
+3. If no combination can reach the gap, largest useful underfill.
+4. Within equal totals, prefer greater combined urgency.
+5. Within equal urgency, prefer fewer chores.
+
+The first render selects one of the best-ranked alternatives and keeps it stable
+across ordinary rerenders. `🎲 Shuffle ideas` advances a local seed to select a
+different top alternative when one exists. It does not write shared state.
+
+Render:
+
+`Bathroom clean (3) + Laundry (2) = 5 points`
+
+If the best available combination underfills the gap, use encouraging copy such
+as `This gets you 4 points closer` instead of implying it completes the goal.
+
+Suggestions remain informational; they are not tappable completion actions.
+
+### 5. Recent activity
+
+Keep the existing list behavior and 30-item limit.
+
+Display rules:
+
+- Personal completion: `+{difficulty}`
+- Joint completion: `+{difficulty} each`
+- Service/reset event: `reset`
+- Backdated events retain their existing relative-time display.
+
+## First-run explanation
+
+Add a one-time modal gated by the device-local key:
+
+`chorebubbles:seenIntro:v1`
+
+Sequence it only after:
+
+1. Authentication is ready.
+2. Household data has loaded.
+3. The user has selected whose phone this is.
+4. No identity-selection modal is open.
+
+This prevents modal stacking. Existing installations will see the explanation
+once after this release, which is desirable because the point model has changed.
+
+Use three short, dynamic sentences:
+
+1. Bubbles grow as chores become due.
+2. Tap a bubble when a chore is done.
+3. What you do stays in your tally for seven active days; aim for
+   `{weeklyGoal}` points.
+
+Dismissal stores the versioned flag. Do not hardcode 14 in the modal.
+
+## Implementation structure
+
+### `src/logModel.js` (new)
+
+Extract pure, testable helpers:
+
+- `pausedDuration(pauses, scopes, from, to)` — merged pause duration.
+- `effectiveAge(pauses, who, eventTime, at)` — elapsed active time.
+- `pointsInActivePeriod(completions, who, pauses, at, periodIndex)` — integer
+  total for one non-overlapping seven-active-day period.
+- `weeklyPoints(completions, who, pauses, at)` — period `0`.
+- `bothStreak(completions, goal, pauses, at)` — completed-period streak.
+- `suggestCombo(chores, gap, urgencyById, seed)` — stable ranked suggestion.
+
+Move or replace the existing `pausedMs()` implementation so urgency and the Log
+model share one interval-merging definition rather than duplicating pause logic.
+
+### `src/App.jsx`
+
+- Replace all `decayedPoints()` calls with `weeklyPoints()`.
+- Remove `decayedPoints()` and the vertical `Column` component.
+- Add a reusable horizontal `ProgressRow`.
+- Compute current totals, prior-period recap, and streak using `now()` so the
+  time-machine view remains consistent.
+- Compute urgency inputs for the gap-closer from the active `view` data.
+- Memoize the suggestion using the chore data, gap, urgency values, and shuffle
+  seed so it does not change on unrelated rerenders.
+- Rewrite the Log tab to match the final layout.
+- Change joint activity copy from fractional half-credit to full integer credit.
+- Remove the half-life stepper.
+- Add and sequence the versioned intro modal.
+- Preserve `simData` behavior: simulated completions and pauses affect the
+  redesigned Log locally and disappear when returning to today.
+
+### `src/logModel.test.js` (new)
+
+Add focused unit tests for the pure rules. Use Vitest and add a `test` script to
+`package.json`.
+
+### `README.md`
+
+Update all references to:
+
+- Decaying effort and half-life.
+- Vertical effort columns.
+- Half-credit joint chores.
+- Read-only time-machine behavior if any stale wording remains.
+
+Describe rolling seven-active-day points, full-for-both joint credit, and
+pause-frozen tallies.
+
+## Verification plan
+
+### Automated tests
+
+Cover at minimum:
+
+1. A personal completion awards full integer credit.
+2. A joint completion awards full credit to A and full credit to B.
+3. Service and reset events award no points.
+4. Future-dated completions are excluded.
+5. An event just inside seven active days counts.
+6. An event exactly on the seven-day boundary moves to period `1`.
+7. No event appears in two periods.
+8. Household pauses freeze both people's effective ages.
+9. Solo pauses freeze only the selected person.
+10. Overlapping solo and household pauses are not double-counted.
+11. A completion recorded during a pause begins aging after resume.
+12. Streak counting starts at the previous period and stops on the first miss.
+13. Suggestion ranking prefers exact totals, then minimal overshoot.
+14. Suggestion fallback handles a gap larger than any three-chore combination.
+15. Suggestions contain at most three unique chores and favor higher urgency.
+16. A seed change can select an alternate top suggestion without changing the
+    underlying data.
+
+### Manual UI checks
+
+Check at narrow and typical phone widths, including safe areas:
+
+- Empty household and empty activity states.
+- One person below goal, at goal, and over goal.
+- Both people over goal and an over-100% Together total.
+- Active household pause and each solo pause.
+- Gap exact match, overshoot, underfill, success, and hidden states.
+- Intro ordering on signed-out, newly signed-in, and already configured devices.
+- Joint, service, reset, and backdated activity rows.
+- Time-machine sandbox calculations and return-to-today cleanup.
+- Reduced-motion preference.
+- Progress bars expose readable labels and do not rely on color alone.
+
+Final commands:
+
+```bash
+npm test
+npm run build
+```
+
+## Acceptance criteria
+
+- No half-life or decay language remains in the product UI or README.
+- Current points are whole numbers based on seven active days.
+- Joint chores count full for each person everywhere.
+- Vacation pauses demonstrably freeze the correct tally.
+- Period boundaries never double-count completions.
+- The Log screen is readable without understanding the scoring implementation.
+- Gap suggestions are stable, relevant to chore urgency, and non-judgmental.
+- Existing bubble, health, cleaning-service, reset, backdating, authentication,
+  sync, and time-machine behaviors continue to work.
+- Unit tests and the production build pass.
+
+## Out of scope
+
+- Fairness or balance warnings.
+- One-tap completion from gap suggestions.
+- Configurable per-person goals.
+- Calendar-week reporting.
+- Database schema changes.

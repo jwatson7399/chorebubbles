@@ -15,6 +15,14 @@ import {
   setMe as saveMe,
   isSynced,
 } from "./storage.js";
+import {
+  bothStreak,
+  pausedDuration,
+  pointsInActivePeriod,
+  suggestCombo,
+  weeklyPoints,
+} from "./logModel.js";
+import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
 
 // ChoreBubbles: a shared household chore ecosystem.
 // Bubbles swell as chores go undone. Tap to complete, drag to rearrange.
@@ -37,6 +45,7 @@ const STARTERS = [
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const DAY = 86400000;
+const INTRO_KEY = "chorebubbles:seenIntro:v1";
 const realNow = () => Date.now();
 // Simulation support: shifts the app's sense of "now" forward for testing
 let TIME_OFFSET = 0;
@@ -46,7 +55,7 @@ const defaultData = () => ({
   chores: [],
   completions: [],
   pauses: [],
-  settings: { nameA: "Julian", nameB: "Kristine", weeklyGoal: 14, halfLifeDays: 7 },
+  settings: { nameA: "Julian", nameB: "Kristine", weeklyGoal: 14 },
   updatedAt: 0,
 });
 
@@ -127,34 +136,6 @@ function applyOperation(value, op) {
   return { ...next, updatedAt: Math.max(next.updatedAt || 0, op.createdAt || 0) };
 }
 
-// Total milliseconds within [from, to] covered by pauses matching the given scopes
-function pausedMs(pauses, scopes, from, to) {
-  const intervals = [];
-  for (const p of pauses || []) {
-    if (!scopes.includes(p.scope)) continue;
-    const s = Math.max(p.start, from);
-    const e = Math.min(p.end == null ? to : p.end, to);
-    if (e > s) intervals.push([s, e]);
-  }
-  intervals.sort((a, b) => a[0] - b[0]);
-  let sum = 0;
-  let start = null;
-  let end = null;
-  for (const [s, e] of intervals) {
-    if (start == null) {
-      start = s;
-      end = e;
-    } else if (s <= end) {
-      end = Math.max(end, e);
-    } else {
-      sum += end - start;
-      start = s;
-      end = e;
-    }
-  }
-  return sum + (start == null ? 0 : end - start);
-}
-
 const activePause = (pauses, scope) => (pauses || []).find((p) => p.scope === scope && p.end == null);
 
 function lastDone(chore, completions) {
@@ -165,23 +146,8 @@ function lastDone(chore, completions) {
 
 function urgencyOf(chore, completions, pauses) {
   const last = lastDone(chore, completions);
-  const elapsed = (now() - last - pausedMs(pauses, ["house"], last, now())) / DAY;
+  const elapsed = (now() - last - pausedDuration(pauses, ["house"], last, now())) / DAY;
   return elapsed / Math.max(chore.freqDays, 0.25);
-}
-
-function decayedPoints(completions, who, halfLifeDays, pauses) {
-  const cutoff = now() - 28 * DAY;
-  let sum = 0;
-  for (const c of completions) {
-    if (c.ts < cutoff) continue;
-    let credit = 0;
-    if (c.by === who) credit = c.difficulty;
-    else if (c.by === "joint") credit = c.difficulty / 2;
-    else continue;
-    const ageDays = (now() - c.ts - pausedMs(pauses, ["house", who], c.ts, now())) / DAY;
-    sum += credit * Math.pow(0.5, Math.max(ageDays, 0) / halfLifeDays);
-  }
-  return sum;
 }
 
 // Weighted share of chores currently inside their frequency window
@@ -269,9 +235,10 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
     if (simRef.current) simRef.current.stop();
     const sim = d3
       .forceSimulation(next)
-      .force("x", d3.forceX(size.w / 2).strength(0.02))
-      .force("y", d3.forceY(size.h / 2).strength(0.026))
+      .force("x", d3.forceX(size.w / 2).strength(0.035))
+      .force("y", d3.forceY(size.h / 2).strength(0.042))
       .force("collide", d3.forceCollide((d) => d.r + 7).strength(1).iterations(3))
+      .velocityDecay(0.28)
       .alpha(0.9)
       .alphaDecay(0.012)
       .alphaMin(0.001)
@@ -287,34 +254,79 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
   }, [targets, size.w, size.h]);
 
   const onPointerDown = (e, node) => {
+    const rect = wrapRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragRef.current = { id: node.id, startX: e.clientX, startY: e.clientY, moved: false };
+    node.vx = 0;
+    node.vy = 0;
+    dragRef.current = {
+      id: node.id,
+      pointerId: e.pointerId,
+      startX: x,
+      startY: y,
+      lastX: x,
+      lastY: y,
+      lastTime: e.timeStamp,
+      velocityX: 0,
+      velocityY: 0,
+      offsetX: node.x - x,
+      offsetY: node.y - y,
+      moved: false,
+    };
   };
 
   const onPointerMove = (e, node) => {
     const d = dragRef.current;
-    if (!d || d.id !== node.id) return;
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
+    if (!d || d.id !== node.id || d.pointerId !== e.pointerId) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const dx = x - d.startX;
+    const dy = y - d.startY;
     if (!d.moved && Math.hypot(dx, dy) > 8) {
       d.moved = true;
-      if (simRef.current) simRef.current.alphaTarget(0.12).restart();
+      if (simRef.current) simRef.current.alphaTarget(0.18).restart();
     }
     if (d.moved) {
-      const rect = wrapRef.current.getBoundingClientRect();
-      node.fx = e.clientX - rect.left;
-      node.fy = e.clientY - rect.top;
+      const elapsed = Math.max(e.timeStamp - d.lastTime, 8);
+      const sampleVelocityX = ((x - d.lastX) / elapsed) * 16;
+      const sampleVelocityY = ((y - d.lastY) / elapsed) * 16;
+      d.velocityX = d.velocityX * 0.65 + sampleVelocityX * 0.35;
+      d.velocityY = d.velocityY * 0.65 + sampleVelocityY * 0.35;
+      d.lastX = x;
+      d.lastY = y;
+      d.lastTime = e.timeStamp;
+      node.fx = clampBubbleCenter(x + d.offsetX, size.w, node.r);
+      node.fy = clampBubbleCenter(y + d.offsetY, size.h, node.r);
     }
   };
 
-  const onPointerUp = (e, node) => {
+  const finishDrag = (node, pointerId, allowTap) => {
     const d = dragRef.current;
+    if (!d || d.id !== node.id || (pointerId != null && d.pointerId !== pointerId)) return;
     dragRef.current = null;
-    if (!d || d.id !== node.id) return;
-    node.fx = null;
-    node.fy = null;
-    if (simRef.current) simRef.current.alphaTarget(0);
-    if (!d.moved) onTap(node.chore);
+    // Blend the user's release velocity with a gentle inward pull. Reheating
+    // is essential here: alphaTarget(0) alone can leave a cooled simulation
+    // parked exactly where the pointer was released.
+    releaseBubbleNode(node, d, size, simRef.current);
+
+    setNodes([...nodesRef.current]);
+    if (allowTap && !d.moved) onTap(node.chore);
+  };
+
+  const onPointerUp = (e, node) => {
+    finishDrag(node, e.pointerId, true);
+  };
+
+  const onPointerCancel = (e, node) => {
+    finishDrag(node, e.pointerId, false);
+  };
+
+  const onLostPointerCapture = (e, node) => {
+    // iOS can end a gesture via lost capture without delivering pointerup.
+    // Always release the fixed coordinates so the bubble cannot remain pinned.
+    finishDrag(node, e.pointerId, false);
   };
 
   return (
@@ -333,6 +345,8 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
             onPointerDown={(e) => onPointerDown(e, n)}
             onPointerMove={(e) => onPointerMove(e, n)}
             onPointerUp={(e) => onPointerUp(e, n)}
+            onPointerCancel={(e) => onPointerCancel(e, n)}
+            onLostPointerCapture={(e) => onLostPointerCapture(e, n)}
             style={{
               position: "absolute",
               left: n.x - n.r,
@@ -348,7 +362,7 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              cursor: "grab",
+              cursor: dragRef.current && dragRef.current.id === n.id ? "grabbing" : "grab",
               userSelect: "none",
               WebkitTapHighlightColor: "transparent",
               animation: popId === n.id ? `pop 0.65s ease-out` : `breathe ${overdue ? 2.2 : 3.6}s ease-in-out infinite`,
@@ -424,6 +438,47 @@ function Stepper({ label, value, min, max, onChange, format }) {
   );
 }
 
+function ProgressRow({ label, points, goal, hue, paused = false, prominent = false }) {
+  const safeGoal = Math.max(Number(goal) || 0, 1);
+  const percent = Math.max(0, Math.min((points / safeGoal) * 100, 100));
+  const complete = points >= safeGoal;
+
+  return (
+    <div style={{ padding: prominent ? "14px 0 12px" : "12px 0" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 7 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+          <span style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: prominent ? 18 : 16, fontWeight: 700, color: "#E8F3F4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {label}
+          </span>
+          {paused && <span style={{ color: "#9FD4EA", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>🏖 away</span>}
+        </div>
+        <span style={{ color: complete ? "#5FE0BB" : paused ? "#9FD4EA" : "#B9D2D8", fontSize: prominent ? 16 : 14, fontWeight: 700, whiteSpace: "nowrap" }}>
+          {points} / {goal}{complete ? " 🎉" : ""}
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label={`${label}: ${points} of ${goal} points${paused ? ", away" : ""}`}
+        aria-valuemin={0}
+        aria-valuemax={safeGoal}
+        aria-valuenow={Math.min(points, safeGoal)}
+        style={{ height: prominent ? 13 : 11, borderRadius: 8, background: "#0F2530", border: "1px solid #1E4152", overflow: "hidden" }}
+      >
+        <div
+          style={{
+            width: `${percent}%`,
+            height: "100%",
+            borderRadius: 8,
+            background: `linear-gradient(to right, ${hue}99, ${hue})`,
+            boxShadow: complete ? `0 0 12px ${hue}88` : "none",
+            transition: "width 0.7s ease",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ---------- Main app ----------
 export default function ChoreBubbles() {
   const [session, setSession] = useState(null);
@@ -447,6 +502,8 @@ export default function ChoreBubbles() {
   const [simDays, setSimDays] = useState(0);
   const [simData, setSimData] = useState(null);
   const [simOpen, setSimOpen] = useState(false);
+  const [introOpen, setIntroOpen] = useState(false);
+  const [suggestionSeed, setSuggestionSeed] = useState(0);
   const [healthPulse, setHealthPulse] = useState(false);
   const prevHealthRef = useRef(null);
   const pulseTimer = useRef(null);
@@ -463,6 +520,51 @@ export default function ChoreBubbles() {
   // apply to a local sandbox copy that is never synced and is discarded on
   // returning to today. This keeps simulated play out of the shared household.
   const view = simDays > 0 && simData ? simData : data;
+
+  const logStats = useMemo(() => {
+    if (!view) return null;
+    const at = now();
+    const pauses = view.pauses || [];
+    const goal = Number(view.settings?.weeklyGoal) || 14;
+    const housePaused = !!activePause(pauses, "house");
+    const soloAPaused = !!activePause(pauses, "a");
+    const soloBPaused = !!activePause(pauses, "b");
+    const aPaused = housePaused || soloAPaused;
+    const bPaused = housePaused || soloBPaused;
+    const pointsA = weeklyPoints(view.completions, "a", pauses, at);
+    const pointsB = weeklyPoints(view.completions, "b", pauses, at);
+    const previousA = pointsInActivePeriod(view.completions, "a", pauses, at, 1);
+    const previousB = pointsInActivePeriod(view.completions, "b", pauses, at, 1);
+    const streak = bothStreak(view.completions, goal, pauses, at);
+    const urgencyById = Object.fromEntries(
+      view.chores.map((chore) => [chore.id, urgencyOf(chore, view.completions, pauses)])
+    );
+    const myPoints = me === "b" ? pointsB : pointsA;
+    const myPaused = me === "b" ? bPaused : aPaused;
+    const gap = Math.max(0, goal - myPoints);
+    const suggestion = me && !myPaused && gap > 0
+      ? suggestCombo(view.chores, gap, urgencyById, suggestionSeed)
+      : null;
+
+    return {
+      pauses,
+      goal,
+      housePaused,
+      soloAPaused,
+      soloBPaused,
+      aPaused,
+      bPaused,
+      pointsA,
+      pointsB,
+      previousA,
+      previousB,
+      previousHasActivity: previousA + previousB > 0,
+      streak,
+      myPaused,
+      gap,
+      suggestion,
+    };
+  }, [view, me, suggestionSeed, simDays]);
 
   const showToast = useCallback((msg, undoFn = null) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -557,6 +659,13 @@ export default function ChoreBubbles() {
   }, [authReady, session, load]);
 
   useEffect(() => {
+    if (!data || !me || askWho || simDays > 0) return;
+    try {
+      if (!localStorage.getItem(INTRO_KEY)) setIntroOpen(true);
+    } catch {}
+  }, [data, me, askWho, simDays]);
+
+  useEffect(() => {
     if (!authReady || (isSynced() && !session)) return;
     const refresh = () => {
       load();
@@ -611,6 +720,11 @@ export default function ChoreBubbles() {
     setMe(who);
     setAskWho(false);
     try { saveMe(who); } catch {}
+  };
+
+  const dismissIntro = () => {
+    try { localStorage.setItem(INTRO_KEY, "1"); } catch {}
+    setIntroOpen(false);
   };
 
   const setSim = (days) => {
@@ -772,46 +886,39 @@ export default function ChoreBubbles() {
   }
 
   const { settings } = view;
-  const pauses = view.pauses || [];
-  const housePaused = !!activePause(pauses, "house");
-  const aPaused = !!activePause(pauses, "a");
-  const bPaused = !!activePause(pauses, "b");
-  const ptsA = decayedPoints(view.completions, "a", settings.halfLifeDays, pauses);
-  const ptsB = decayedPoints(view.completions, "b", settings.halfLifeDays, pauses);
+  const {
+    pauses,
+    goal,
+    housePaused,
+    soloAPaused,
+    soloBPaused,
+    aPaused,
+    bPaused,
+    pointsA,
+    pointsB,
+    previousA,
+    previousB,
+    previousHasActivity,
+    streak,
+    myPaused,
+    gap,
+    suggestion,
+  } = logStats;
   const health = healthScore(view.chores, view.completions, pauses);
   const healthPct = Math.round(health * 100);
   const healthColor = healthPct >= 80 ? "#5FE0BB" : healthPct >= 50 ? "#FFC65E" : "#FF8B7B";
-  const goal = settings.weeklyGoal;
   const recent = [...view.completions].sort((a, b) => b.ts - a.ts).slice(0, 30);
-
-  const Column = ({ label, pts, hue }) => {
-    const pct = Math.min(pts / goal, 1.35);
-    return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-        <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, color: "#E8F3F4", fontWeight: 600 }}>{label}</div>
-        <div style={{ position: "relative", width: 74, height: 260, borderRadius: 18, background: "#0F2530", overflow: "hidden", border: "1px solid #1E4152" }}>
-          <div style={{ position: "absolute", left: 0, right: 0, bottom: `${(1 / 1.35) * 100}%`, borderTop: "2px dashed #5FE0BB88" }} />
-          <div
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: `${(pct / 1.35) * 100}%`,
-              background: `linear-gradient(to top, ${hue}, ${hue}88)`,
-              borderRadius: "0 0 18px 18px",
-              transition: "height 0.8s ease",
-              boxShadow: pts >= goal ? `0 0 18px ${hue}AA` : "none",
-            }}
-          />
-        </div>
-        <div style={{ fontSize: 14, color: pts >= goal ? "#5FE0BB" : "#7FA3AC", fontWeight: 700 }}>
-          {pts.toFixed(1)} / {goal}
-          {pts >= goal ? " 🎉" : ""}
-        </div>
-      </div>
-    );
-  };
+  const togetherPoints = pointsA + pointsB;
+  const togetherGoal = goal * 2;
+  const previousRecap = !previousHasActivity
+    ? ""
+    : previousA >= goal && previousB >= goal
+    ? "Previous 7 days: both hit goal 🎉"
+    : previousA >= goal
+    ? `Previous 7 days: ${settings.nameA} hit the goal`
+    : previousB >= goal
+    ? `Previous 7 days: ${settings.nameB} hit the goal`
+    : `Previous 7 days: ${previousA + previousB} points together`;
 
   const impLabel = (v) => ["", "Low", "Mild", "Medium", "High", "Critical"][v];
 
@@ -922,19 +1029,76 @@ export default function ChoreBubbles() {
       )}
 
       {tab === "log" && (
-        <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px 20px" }}>
-          <div style={{ display: "flex", gap: 20, justifyContent: "center", padding: "12px 0 4px" }}>
-            <Column label={`${settings.nameA}${aPaused || housePaused ? " 🏖" : ""}`} pts={ptsA} hue="#6FC3FF" />
-            <Column label={`${settings.nameB}${bPaused || housePaused ? " 🏖" : ""}`} pts={ptsB} hue="#FF9FC0" />
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px 26px" }}>
+          <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 23, fontWeight: 700, marginTop: 4 }}>Last 7 days</div>
+          <div style={{ color: "#7FA3AC", fontSize: 13, lineHeight: 1.4, marginBottom: 12 }}>
+            What you&apos;ve each done over your last 7 active days. Aim for {goal} points.
           </div>
-          <div style={{ fontSize: 12, color: "#7FA3AC", textAlign: "center", marginBottom: 18 }}>
-            Effort decays with a {settings.halfLifeDays} day half-life. Dashed line is the goal. Joint chores split credit.
+
+          <div style={{ background: "linear-gradient(145deg, #173746, #122B37)", border: "1px solid #245064", borderRadius: 18, padding: "0 16px 12px", marginBottom: 12 }}>
+            <ProgressRow label="Together 🤝" points={togetherPoints} goal={togetherGoal} hue="#5FE0BB" prominent />
+            {(previousRecap || streak >= 2) && (
+              <div style={{ color: "#9FBCC4", fontSize: 12, lineHeight: 1.45, borderTop: "1px solid #244653", paddingTop: 10 }}>
+                {previousRecap}
+                {previousRecap && streak >= 2 ? " · " : ""}
+                {streak >= 2 ? `🔥 ${streak}-period streak` : ""}
+              </div>
+            )}
           </div>
-          <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Recent activity</div>
+
+          <div style={{ background: "#102733", border: "1px solid #1A3B49", borderRadius: 18, padding: "2px 16px", marginBottom: 12 }}>
+            <ProgressRow label={settings.nameA} points={pointsA} goal={goal} hue="#6FC3FF" paused={aPaused} />
+            <div style={{ height: 1, background: "#1A3B49" }} />
+            <ProgressRow label={settings.nameB} points={pointsB} goal={goal} hue="#FF9FC0" paused={bPaused} />
+          </div>
+
+          {me && !myPaused && (
+            <div style={{ background: gap === 0 ? "#153D35" : "#2B2A19", border: `1px solid ${gap === 0 ? "#297261" : "#5B5327"}`, borderRadius: 18, padding: 16, marginBottom: 16 }}>
+              {gap === 0 ? (
+                <>
+                  <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, color: "#5FE0BB" }}>You hit your goal for the last 7 days! 🎉</div>
+                  <div style={{ fontSize: 12, color: "#A8CFC5", marginTop: 3 }}>Nice work keeping the household moving.</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, color: "#FFC65E" }}>
+                    You&apos;re {gap} point{gap === 1 ? "" : "s"} from your goal 🎯
+                  </div>
+                  {suggestion ? (
+                    <>
+                      <div style={{ color: "#E8F3F4", fontSize: 14, lineHeight: 1.5, marginTop: 8 }}>
+                        Try: {suggestion.chores.map((chore) => `${chore.name} (${chore.difficulty})`).join(" + ")}
+                      </div>
+                      <div style={{ color: "#B9D2D8", fontSize: 12, marginTop: 3 }}>
+                        {suggestion.reachesGap
+                          ? `= ${suggestion.total} points`
+                          : `This gets you ${suggestion.total} points closer`}
+                      </div>
+                      <button
+                        onClick={() => setSuggestionSeed((seed) => seed + 1)}
+                        style={{ ...btnStyle("transparent", "#FFC65E"), padding: "8px 0 0", fontSize: 13 }}
+                      >
+                        🎲 Shuffle ideas
+                      </button>
+                    </>
+                  ) : (
+                    <div style={{ color: "#B9D2D8", fontSize: 13, marginTop: 6 }}>Pick any chore that needs attention to move closer.</div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          <div style={{ color: "#7FA3AC", fontSize: 11.5, lineHeight: 1.45, textAlign: "center", margin: "2px 4px 20px" }}>
+            Chores you do together count full for both of you.<br />
+            Vacation mode freezes your tally while you&apos;re away.
+          </div>
+
+          <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Recent activity</div>
           {recent.length === 0 && <div style={{ color: "#7FA3AC", fontSize: 14 }}>Nothing logged yet. Tap a bubble to get started.</div>}
           {recent.map((c) => (
             <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 0", borderBottom: "1px solid #1A3542" }}>
-              <div>
+              <div style={{ minWidth: 0, paddingRight: 10 }}>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>
                   {c.by === "service" ? "🧹 " : c.by === "reset" ? "🔄 " : ""}{c.choreName}
                 </div>
@@ -942,8 +1106,8 @@ export default function ChoreBubbles() {
                   {c.by === "a" ? settings.nameA : c.by === "b" ? settings.nameB : c.by === "joint" ? "Together" : c.by === "reset" ? "Caught up" : "Cleaning service"} · {timeAgo(c.ts)}
                 </div>
               </div>
-              <div style={{ fontSize: 13, color: c.by === "service" || c.by === "reset" ? "#7FA3AC" : "#5FE0BB", fontWeight: 700 }}>
-                {c.by === "service" || c.by === "reset" ? "reset" : `+${c.by === "joint" ? (c.difficulty / 2).toFixed(1) + " each" : c.difficulty}`}
+              <div style={{ fontSize: 13, color: c.by === "service" || c.by === "reset" ? "#7FA3AC" : "#5FE0BB", fontWeight: 700, whiteSpace: "nowrap" }}>
+                {c.by === "service" || c.by === "reset" ? "reset" : `+${c.difficulty}${c.by === "joint" ? " each" : ""}`}
               </div>
             </div>
           ))}
@@ -991,23 +1155,22 @@ export default function ChoreBubbles() {
 
           <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Vacation mode</div>
           <div style={{ fontSize: 12, color: "#7FA3AC", margin: "4px 0 10px" }}>
-            Household pause freezes all bubble growth and both columns. A solo pause protects one person's column during a trip or a rough week while bubbles keep growing for whoever is home.
+            Household pause freezes all bubble growth and both tallies. A solo pause protects one person&apos;s tally during a trip or a rough week while bubbles keep growing for whoever is home.
           </div>
           <button onClick={() => togglePause("house")} style={{ ...btnStyle(housePaused ? "#6FC3FF" : "#0F2530", housePaused ? "#0C1B26" : "#9FD4EA"), width: "100%", marginBottom: 8, border: housePaused ? "none" : "1px solid #1E4152" }}>
             {housePaused ? "🏖 Resume household" : "🏖 Pause whole household"}
           </button>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => togglePause("a")} style={{ ...btnStyle(aPaused ? "#6FC3FF" : "#0F2530", aPaused ? "#0C1B26" : "#B9D2D8"), flex: 1, fontSize: 13, border: aPaused ? "none" : "1px solid #1E4152" }}>
-              {aPaused ? `Resume ${settings.nameA}` : `Pause ${settings.nameA}`}
+            <button onClick={() => togglePause("a")} style={{ ...btnStyle(soloAPaused ? "#6FC3FF" : "#0F2530", soloAPaused ? "#0C1B26" : "#B9D2D8"), flex: 1, fontSize: 13, border: soloAPaused ? "none" : "1px solid #1E4152" }}>
+              {soloAPaused ? `Resume ${settings.nameA}` : `Pause ${settings.nameA}`}
             </button>
-            <button onClick={() => togglePause("b")} style={{ ...btnStyle(bPaused ? "#6FC3FF" : "#0F2530", bPaused ? "#0C1B26" : "#B9D2D8"), flex: 1, fontSize: 13, border: bPaused ? "none" : "1px solid #1E4152" }}>
-              {bPaused ? `Resume ${settings.nameB}` : `Pause ${settings.nameB}`}
+            <button onClick={() => togglePause("b")} style={{ ...btnStyle(soloBPaused ? "#6FC3FF" : "#0F2530", soloBPaused ? "#0C1B26" : "#B9D2D8"), flex: 1, fontSize: 13, border: soloBPaused ? "none" : "1px solid #1E4152" }}>
+              {soloBPaused ? `Resume ${settings.nameB}` : `Pause ${settings.nameB}`}
             </button>
           </div>
 
           <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Household settings</div>
           <Stepper label="Weekly effort goal (points)" value={settings.weeklyGoal} min={4} max={40} onChange={(v) => commit({ type: "settings:patch", patch: { weeklyGoal: v } })} />
-          <Stepper label="Decay half-life (days)" value={settings.halfLifeDays} min={3} max={21} onChange={(v) => commit({ type: "settings:patch", patch: { halfLifeDays: v } })} />
           <NameEditor settings={settings} onSave={(nameA, nameB) => commit({ type: "settings:patch", patch: { nameA, nameB } })} />
           <button onClick={() => setAskWho(true)} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", marginTop: 12, border: "1px solid #1E4152", fontSize: 13 }}>
             This phone belongs to: {me === "a" ? settings.nameA : me === "b" ? settings.nameB : "?"} (change)
@@ -1054,7 +1217,7 @@ export default function ChoreBubbles() {
         <Modal onClose={() => setSimOpen(false)}>
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Time machine 🧪</div>
           <div style={{ fontSize: 13, color: "#7FA3AC", marginBottom: 16 }}>
-            Fast-forward this phone's clock to preview how bubbles grow and columns decay. Preview mode is read-only and never changes shared data or timestamps.
+            Fast-forward this phone&apos;s clock to preview bubble growth and seven-day tallies. Test completions and pauses stay in a local sandbox and disappear when you return to today.
           </div>
           <div style={{ textAlign: "center", fontFamily: "'Baloo 2', sans-serif", fontSize: 26, fontWeight: 700, color: simDays > 0 ? "#FFC65E" : "#E8F3F4", marginBottom: 14 }}>
             {simDays === 0 ? "Today" : `Today + ${simDays} day${simDays === 1 ? "" : "s"}`}
@@ -1076,6 +1239,19 @@ export default function ChoreBubbles() {
             <button onClick={() => chooseMe("a")} style={{ ...btnStyle("#6FC3FF"), flex: 1 }}>{settings.nameA}</button>
             <button onClick={() => chooseMe("b")} style={{ ...btnStyle("#FF9FC0"), flex: 1 }}>{settings.nameB}</button>
           </div>
+        </Modal>
+      )}
+
+      {/* One-time explanation, shown only after device identity is known */}
+      {introOpen && !askWho && (
+        <Modal onClose={dismissIntro}>
+          <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 21, fontWeight: 700, marginBottom: 14 }}>How ChoreBubbles works 🫧</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, color: "#D7E7EA", fontSize: 14, lineHeight: 1.45, marginBottom: 20 }}>
+            <div><strong style={{ color: "#5FE0BB" }}>1.</strong> Bubbles grow as chores become due.</div>
+            <div><strong style={{ color: "#5FE0BB" }}>2.</strong> Tap a bubble when a chore is done.</div>
+            <div><strong style={{ color: "#5FE0BB" }}>3.</strong> What you do stays in your tally for seven active days. Aim for {goal} points.</div>
+          </div>
+          <button onClick={dismissIntro} style={{ ...btnStyle("#5FE0BB"), width: "100%" }}>Got it</button>
         </Modal>
       )}
 
@@ -1116,7 +1292,7 @@ export default function ChoreBubbles() {
       {serviceOpen && (
         <Modal onClose={() => setServiceOpen(false)}>
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Cleaning service visit</div>
-          <div style={{ fontSize: 13, color: "#7FA3AC", marginBottom: 14 }}>Check off what they handled. These bubbles reset without crediting either column.</div>
+          <div style={{ fontSize: 13, color: "#7FA3AC", marginBottom: 14 }}>Check off what they handled. These bubbles reset without crediting either tally.</div>
           <div style={{ maxHeight: 300, overflowY: "auto", marginBottom: 16 }}>
             {view.chores.map((ch) => (
               <label key={ch.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: "1px solid #1A3542", cursor: "pointer" }}>

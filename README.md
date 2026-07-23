@@ -1,6 +1,6 @@
 # ChoreBubbles 🫧
 
-A shared household chore ecosystem for two people. Chores are living bubbles that swell as they go undone, weighted by importance and goal frequency. Tap a bubble to complete a chore. Effort accumulates in decaying per-person columns, a cleaning service can batch-reset chores without crediting anyone, and the household's wellbeing is summarized in one health bar.
+A shared household chore ecosystem for two people. Chores are living bubbles that swell as they go undone, weighted by importance and goal frequency. Tap a bubble to complete a chore. Each person gets a rolling seven-active-day effort tally, a cleaning service can batch-reset chores without crediting anyone, and the household's wellbeing is summarized in one health bar.
 
 The installable PWA runs full-screen from each phone and securely syncs shared state through Supabase.
 
@@ -8,11 +8,14 @@ The installable PWA runs full-screen from each phone and securely syncs shared s
 
 - Bubble field with gentle physics, drag to rearrange, tap to complete
 - Importance, difficulty, and goal frequency per chore
-- Per-person effort columns with configurable decay half-life and shared goal
-- Joint completions and cleaning-service resets
+- Per-person rolling seven-active-day effort tallies with a shared goal
+- Full credit for both people on joint completions
+- Goal-closing chore suggestions that prioritize due and approaching-due work
+- Previous-period recap, household total, and shared streak
+- Cleaning-service and board resets without effort credit
 - Whole-household and per-person vacation pauses
 - Seven-level household health mood
-- Read-only time machine for previewing future bubble growth and point decay
+- Local time-machine sandbox for previewing bubble growth and effort windows
 - Offline app shell and durable local write queue
 - Conflict-safe multi-phone saves using optimistic row revisions
 - Passwordless email authentication with a two-person database allowlist
@@ -69,6 +72,13 @@ npm install
 npm run dev
 ```
 
+Run the scoring-model tests and production build with:
+
+```bash
+npm test
+npm run build
+```
+
 ## Sync model
 
 Shared data remains one JSON document for simple deployment, but local edits are stored as small operations rather than whole-state replacements. Every save includes the server revision it was based on:
@@ -82,3 +92,5 @@ Shared data remains one JSON document for simple deployment, but local edits are
 The operation queue lives in local storage until Supabase confirms the write, so a network failure or app reload does not discard unsynced changes. Polling runs every 20 seconds and whenever the app returns to the foreground.
 
 Simulation time never enters shared data. While fast-forwarded, edits (popping bubbles, cleaning-service resets, pauses) apply to a local sandbox copy that is discarded on returning to today, so testing never touches the shared household. Chore and settings changes stay disabled in simulation. All real, persisted events use the device's real clock.
+
+Effort points use each person's last seven active days. Household pauses freeze both tallies, solo pauses freeze only that person's tally, and overlapping pauses are counted once. A joint chore awards its full effort value to both people; cleaning-service and board-reset events award no effort.
