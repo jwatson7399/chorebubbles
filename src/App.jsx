@@ -102,6 +102,9 @@ function applyOperation(value, op) {
     case "chore:delete":
       next = { ...data, chores: data.chores.filter((item) => item.id !== op.choreId) };
       break;
+    case "chore:clear":
+      next = { ...data, chores: [] };
+      break;
     case "pause:set": {
       let pauses = [...data.pauses];
       const active = pauses.filter((item) => item.scope === op.scope && item.end == null);
@@ -681,6 +684,22 @@ export default function ChoreBubbles() {
     commit({ type: "chore:add-many", chores });
   };
 
+  const clearChores = () => {
+    commit({ type: "chore:clear" });
+    setEditChore(null);
+    showToast("All chores cleared");
+  };
+
+  // Mark every chore as just done (no points) — for coming back after time away
+  // without having paused. Resets bubble sizes and health without crediting anyone.
+  const resetBubbles = () => {
+    const ts = realNow();
+    const comps = view.chores.map((ch) => ({ id: uid(), choreId: ch.id, choreName: ch.name, difficulty: ch.difficulty, by: "reset", ts }));
+    if (comps.length === 0) return;
+    commit({ type: "completion:add-many", completions: comps });
+    showToast("Board reset — every chore marked fresh");
+  };
+
   // Pulse the health bar green whenever the score rises
   useEffect(() => {
     if (!view) return;
@@ -917,14 +936,14 @@ export default function ChoreBubbles() {
             <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 0", borderBottom: "1px solid #1A3542" }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  {c.by === "service" ? "🧹 " : ""}{c.choreName}
+                  {c.by === "service" ? "🧹 " : c.by === "reset" ? "🔄 " : ""}{c.choreName}
                 </div>
                 <div style={{ fontSize: 12, color: "#7FA3AC" }}>
-                  {c.by === "a" ? settings.nameA : c.by === "b" ? settings.nameB : c.by === "joint" ? "Together" : "Cleaning service"} · {timeAgo(c.ts)}
+                  {c.by === "a" ? settings.nameA : c.by === "b" ? settings.nameB : c.by === "joint" ? "Together" : c.by === "reset" ? "Caught up" : "Cleaning service"} · {timeAgo(c.ts)}
                 </div>
               </div>
-              <div style={{ fontSize: 13, color: c.by === "service" ? "#7FA3AC" : "#5FE0BB", fontWeight: 700 }}>
-                {c.by === "service" ? "reset" : `+${c.by === "joint" ? (c.difficulty / 2).toFixed(1) + " each" : c.difficulty}`}
+              <div style={{ fontSize: 13, color: c.by === "service" || c.by === "reset" ? "#7FA3AC" : "#5FE0BB", fontWeight: 700 }}>
+                {c.by === "service" || c.by === "reset" ? "reset" : `+${c.by === "joint" ? (c.difficulty / 2).toFixed(1) + " each" : c.difficulty}`}
               </div>
             </div>
           ))}
@@ -954,6 +973,21 @@ export default function ChoreBubbles() {
               <div style={{ color: "#7FA3AC" }}>›</div>
             </div>
           ))}
+
+          {view.chores.length > 0 && (
+            <>
+              <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Board maintenance</div>
+              <div style={{ fontSize: 12, color: "#7FA3AC", margin: "4px 0 10px" }}>
+                Reset marks every chore as just done (no points) — handy if you were away without pausing. Clear removes all chores so you can build a fresh list together.
+              </div>
+              <button disabled={simDays > 0} onClick={() => window.confirm("Reset all bubbles to fresh? Every chore is marked as just done — no points are awarded.") && resetBubbles()} style={{ ...btnStyle("#0F2530", "#5FE0BB"), width: "100%", marginBottom: 8, border: "1px solid #1E4152", opacity: simDays > 0 ? 0.45 : 1 }}>
+                🔄 Reset all bubbles to fresh
+              </button>
+              <button disabled={simDays > 0} onClick={() => window.confirm("Clear all chores for both of you? This removes every chore and cannot be undone.") && clearChores()} style={{ ...btnStyle("#0F2530", "#FF8B7B"), width: "100%", border: "1px solid #1E4152", opacity: simDays > 0 ? 0.45 : 1 }}>
+                🗑 Clear all chores
+              </button>
+            </>
+          )}
 
           <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Vacation mode</div>
           <div style={{ fontSize: 12, color: "#7FA3AC", margin: "4px 0 10px" }}>
