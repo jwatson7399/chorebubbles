@@ -440,12 +440,15 @@ function Stepper({ label, value, min, max, onChange, format }) {
   );
 }
 
-function ProgressRow({ label, points, goal, hue, paused = false, prominent = false, zoned = false }) {
+function ProgressRow({ label, points, goal, hue, paused = false, prominent = false, zoned = false, greenStart }) {
   const safeGoal = Math.max(Number(goal) || 0, 1);
   const percent = Math.max(0, Math.min((points / safeGoal) * 100, 100));
-  const zone = zoned ? effortZone(points, safeGoal) : null;
+  const zone = zoned ? effortZone(points, safeGoal, greenStart) : null;
   const complete = zoned ? zone.key === "green" : points >= safeGoal;
   const fillColor = zone?.color || hue;
+  // Place the visual zone bands at the actual thresholds (green start is configurable)
+  const buildingPct = zone ? Math.round((zone.buildingMin / zone.fullScale) * 100) : 40;
+  const greenPct = zone ? Math.round((zone.greenMin / zone.fullScale) * 100) : 80;
 
   return (
     <div style={{ padding: prominent ? "14px 0 12px" : "12px 0", opacity: paused ? 0.72 : 1 }}>
@@ -490,7 +493,7 @@ function ProgressRow({ label, points, goal, hue, paused = false, prominent = fal
           height: prominent ? 13 : 12,
           borderRadius: 8,
           background: zoned
-            ? "linear-gradient(to right, #FF8B7B30 0 40%, #FFC65E30 40% 80%, #5FE0BB30 80% 100%)"
+            ? `linear-gradient(to right, #FF8B7B30 0 ${buildingPct}%, #FFC65E30 ${buildingPct}% ${greenPct}%, #5FE0BB30 ${greenPct}% 100%)`
             : "#0F2530",
           border: "1px solid #1E4152",
           overflow: "hidden",
@@ -508,8 +511,8 @@ function ProgressRow({ label, points, goal, hue, paused = false, prominent = fal
         />
         {zoned && (
           <>
-            <div aria-hidden="true" style={{ position: "absolute", inset: "0 auto 0 40%", width: 1, background: "#D8E9EC55" }} />
-            <div aria-hidden="true" style={{ position: "absolute", inset: "0 auto 0 80%", width: 1, background: "#D8E9EC88" }} />
+            <div aria-hidden="true" style={{ position: "absolute", inset: `0 auto 0 ${buildingPct}%`, width: 1, background: "#D8E9EC55" }} />
+            <div aria-hidden="true" style={{ position: "absolute", inset: `0 auto 0 ${greenPct}%`, width: 1, background: "#D8E9EC88" }} />
           </>
         )}
       </div>
@@ -571,7 +574,7 @@ export default function ChoreBubbles() {
     const bPaused = housePaused || soloBPaused;
     const pointsA = weeklyPoints(view.completions, "a", pauses, at);
     const pointsB = weeklyPoints(view.completions, "b", pauses, at);
-    const { greenMin } = effortZoneThresholds(goal);
+    const { greenMin } = effortZoneThresholds(goal, view.settings?.greenStart);
     const previousA = pointsInActivePeriod(view.completions, "a", pauses, at, 1);
     const previousB = pointsInActivePeriod(view.completions, "b", pauses, at, 1);
     const streak = bothStreak(view.completions, greenMin, pauses, at);
@@ -779,6 +782,16 @@ export default function ChoreBubbles() {
 
   const resetActivity = () => {
     commit({ type: "completion:remove", ids: view.completions.map((item) => item.id) });
+  };
+
+  // Remove a single logged completion: drops it from the activity log, takes its
+  // effort points back off, and regrows that chore's bubble. Undoable.
+  const removeCompletion = (entry) => {
+    if (!commit({ type: "completion:remove", ids: [entry.id] })) return;
+    showToast(`Removed ${entry.choreName}`, () => {
+      commit({ type: "completion:add", completion: entry });
+      setToast(null);
+    });
   };
 
   const togglePause = (scope) => {
@@ -1089,9 +1102,9 @@ export default function ChoreBubbles() {
           </div>
 
           <div style={{ background: "#102733", border: "1px solid #1A3B49", borderRadius: 18, padding: "2px 16px", marginBottom: 12 }}>
-            <ProgressRow label={settings.nameA} points={pointsA} goal={goal} hue="#6FC3FF" paused={aPaused} zoned />
+            <ProgressRow label={settings.nameA} points={pointsA} goal={goal} hue="#6FC3FF" paused={aPaused} zoned greenStart={settings.greenStart} />
             <div style={{ height: 1, background: "#1A3B49" }} />
-            <ProgressRow label={settings.nameB} points={pointsB} goal={goal} hue="#FF9FC0" paused={bPaused} zoned />
+            <ProgressRow label={settings.nameB} points={pointsB} goal={goal} hue="#FF9FC0" paused={bPaused} zoned greenStart={settings.greenStart} />
             <div style={{ color: "#7FA3AC", fontSize: 11.5, textAlign: "center", padding: "2px 0 12px" }}>
               Full scale: {goal} points · Green starts at {greenMin}
             </div>
@@ -1142,8 +1155,8 @@ export default function ChoreBubbles() {
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Recent activity</div>
           {recent.length === 0 && <div style={{ color: "#7FA3AC", fontSize: 14 }}>Nothing logged yet. Tap a bubble to get started.</div>}
           {recent.map((c) => (
-            <div key={c.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 0", borderBottom: "1px solid #1A3542" }}>
-              <div style={{ minWidth: 0, paddingRight: 10 }}>
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid #1A3542" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 600 }}>
                   {c.by === "service" ? "🧹 " : c.by === "reset" ? "🔄 " : ""}{c.choreName}
                 </div>
@@ -1154,6 +1167,13 @@ export default function ChoreBubbles() {
               <div style={{ fontSize: 13, color: c.by === "service" || c.by === "reset" ? "#7FA3AC" : "#5FE0BB", fontWeight: 700, whiteSpace: "nowrap" }}>
                 {c.by === "service" || c.by === "reset" ? "reset" : `+${c.difficulty}${c.by === "joint" ? " each" : ""}`}
               </div>
+              <button
+                onClick={() => removeCompletion(c)}
+                aria-label={`Delete ${c.choreName}`}
+                style={{ ...btnStyle("#0F2530", "#FF8B7B"), padding: "5px 10px", fontSize: 13, border: "1px solid #1E4152", lineHeight: 1, flexShrink: 0 }}
+              >
+                ✕
+              </button>
             </div>
           ))}
         </div>
@@ -1215,9 +1235,10 @@ export default function ChoreBubbles() {
           </div>
 
           <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Household settings</div>
-          <Stepper label="Effort scale (full bar)" value={settings.weeklyGoal} min={4} max={40} onChange={(v) => commit({ type: "settings:patch", patch: { weeklyGoal: v } })} />
+          <Stepper label="Effort scale (full bar)" value={settings.weeklyGoal} min={4} max={40} onChange={(v) => commit({ type: "settings:patch", patch: { weeklyGoal: v, greenStart: Math.min(greenMin, v) } })} />
+          <Stepper label="Green zone starts at" value={greenMin} min={2} max={settings.weeklyGoal} onChange={(v) => commit({ type: "settings:patch", patch: { greenStart: v } })} format={(v) => `${v} pts`} />
           <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "-4px 0 8px" }}>
-            Green begins at {greenMin} points. The full bar is a reference, not a cutoff.
+            Land in the green by reaching {greenMin} of {settings.weeklyGoal} points. The full bar is a reference, not a cutoff.
           </div>
           <NameEditor settings={settings} onSave={(nameA, nameB) => commit({ type: "settings:patch", patch: { nameA, nameB } })} />
           <button onClick={() => setAskWho(true)} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", marginTop: 12, border: "1px solid #1E4152", fontSize: 13 }}>

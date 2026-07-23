@@ -143,4 +143,16 @@ describe("effort zones", () => {
       greenMin: 7,
     });
   });
+
+  it("honors an explicit green start, clamped to the full scale", () => {
+    expect(effortZoneThresholds(14, 9)).toEqual({
+      fullScale: 14,
+      buildingMin: 5,
+      greenMin: 9,
+    });
+    expect(effortZone(9, 14, 9).key).toBe("green");
+    expect(effortZone(8, 14, 9).key).toBe("building");
+    // A green start above the scale is capped at the scale.
+    expect(effortZoneThresholds(14, 20).greenMin).toBe(14);
+  });
 });

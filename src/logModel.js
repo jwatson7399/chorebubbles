@@ -1,17 +1,20 @@
 const DAY = 86400000;
 const PERIOD = 7 * DAY;
 
-export function effortZoneThresholds(goal) {
+export function effortZoneThresholds(goal, greenStart) {
   const fullScale = Math.max(1, Math.round(Number(goal) || 1));
-  return {
-    fullScale,
-    buildingMin: Math.ceil(fullScale * 0.4),
-    greenMin: Math.ceil(fullScale * 0.8),
-  };
+  const requested = Number(greenStart);
+  // Green defaults to the top fifth of the scale, but can be set explicitly.
+  const greenMin =
+    Number.isFinite(requested) && requested >= 1
+      ? Math.min(Math.round(requested), fullScale)
+      : Math.ceil(fullScale * 0.8);
+  const buildingMin = Math.max(1, Math.min(Math.ceil(greenMin * 0.5), greenMin));
+  return { fullScale, buildingMin, greenMin };
 }
 
-export function effortZone(points, goal) {
-  const thresholds = effortZoneThresholds(goal);
+export function effortZone(points, goal, greenStart) {
+  const thresholds = effortZoneThresholds(goal, greenStart);
   const total = Math.max(0, Number(points) || 0);
 
   if (total >= thresholds.greenMin) {
