@@ -360,11 +360,11 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
               width: n.r * 2,
               height: n.r * 2,
               borderRadius: "50%",
-              background: `radial-gradient(circle at 31% 26%, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.07) 10%, rgba(255,255,255,0) 28%), radial-gradient(circle at 72% 82%, ${n.hue}55 0%, rgba(255,255,255,0) 58%), radial-gradient(circle at 46% 44%, ${n.hue}FA 0%, ${n.hue}DA 52%, ${n.hue}96 100%)`,
+              background: `radial-gradient(circle at 32% 30%, ${n.hue}F5, ${n.hue}AA 60%, ${n.hue}66)`,
               boxShadow: due
-                ? `0 0 ${overdue ? 28 : 15}px ${n.hue}${overdue ? "99" : "55"}, inset 0 3px 7px rgba(255,255,255,0.2), inset 0 -8px 13px ${n.hue}4D`
-                : `inset 0 3px 7px rgba(255,255,255,0.14), inset 0 -7px 11px ${n.hue}3D`,
-              border: due ? `2px solid ${n.hue}` : `1.5px solid rgba(255,255,255,0.28)`,
+                ? `0 0 ${overdue ? 26 : 14}px ${n.hue}${overdue ? "AA" : "66"}, inset 0 0 12px rgba(255,255,255,0.25)`
+                : `inset 0 0 10px rgba(255,255,255,0.18)`,
+              border: due ? `2px solid ${n.hue}` : `1.5px solid ${n.hue}66`,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -376,20 +376,6 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays }) {
               zIndex: dragRef.current && dragRef.current.id === n.id ? 5 : 1,
             }}
           >
-            <div
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                top: "15%",
-                left: "20%",
-                width: "24%",
-                height: "17%",
-                borderRadius: "50%",
-                background: "radial-gradient(circle at 42% 42%, rgba(255,255,255,0.36), rgba(255,255,255,0) 74%)",
-                transform: "rotate(-18deg)",
-                pointerEvents: "none",
-              }}
-            />
             {popId === n.id && (
               <span style={{ position: "absolute", top: -14, right: -6, fontSize: 20, animation: "sparkleUp 0.9s ease-out forwards", pointerEvents: "none" }}>✨</span>
             )}
