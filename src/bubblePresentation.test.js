@@ -7,9 +7,9 @@ import {
 } from "./bubblePresentation.js";
 
 describe("bubble presentation", () => {
-  it("keeps every bubble at least 60 pixels across", () => {
+  it("keeps every bubble at least 46 pixels across", () => {
     expect(clampBubbleRadius(17)).toBe(MIN_BUBBLE_RADIUS);
-    expect(MIN_BUBBLE_RADIUS * 2).toBe(60);
+    expect(MIN_BUBBLE_RADIUS * 2).toBe(46);
     expect(clampBubbleRadius(72)).toBe(72);
     expect(clampBubbleRadius(140)).toBe(100);
   });

@@ -1,4 +1,4 @@
-export const MIN_BUBBLE_RADIUS = 30;
+export const MIN_BUBBLE_RADIUS = 23;
 export const COMPACT_LABEL_MAX_RADIUS = 40;
 
 export function clampBubbleRadius(radius) {
