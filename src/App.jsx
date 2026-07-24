@@ -31,7 +31,7 @@ import {
   lastDoneLabel,
 } from "./choreHistory.js";
 import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
-import { clampBubbleRadius, usesCompactBubbleLabel } from "./bubblePresentation.js";
+import { rankBubbleTargets, usesCompactBubbleLabel } from "./bubblePresentation.js";
 import {
   advanceTwoStepChore,
   disableTwoStepChore,
@@ -191,10 +191,13 @@ function lastDone(chore, completions) {
   return t;
 }
 
-function urgencyOf(chore, completions, pauses) {
+function activeDaysSinceDone(chore, completions, pauses) {
   const last = lastDone(chore, completions);
-  const elapsed = (now() - last - pausedDuration(pauses, ["house"], last, now())) / DAY;
-  return elapsed / Math.max(chore.freqDays, 0.25);
+  return Math.max(0, (now() - last - pausedDuration(pauses, ["house"], last, now())) / DAY);
+}
+
+function urgencyOf(chore, completions, pauses) {
+  return activeDaysSinceDone(chore, completions, pauses) / Math.max(chore.freqDays, 0.25);
 }
 
 // Weighted share of chores currently inside their frequency window
@@ -267,15 +270,27 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
     // Size bubbles so the set comfortably fills ~55% of the container area
     const areaBudget = (size.w * size.h * 0.55) / n;
     const baseR = Math.sqrt(areaBudget / Math.PI);
-    return chores.map((ch, i) => {
-      const u = Math.min(urgencyOf(ch, completions, pauses), 2.2);
-      // Importance sets the baseline footprint: a Critical chore starts about
-      // twice the diameter of a Low one (imp 1 -> 0.66, imp 5 -> 1.30)
-      const impW = 0.5 + 0.16 * ch.importance;
-      // Urgency swells the bubble from its fresh size toward overdue
-      const growth = 0.5 + 0.8 * (u / 2.2);
-      const r = clampBubbleRadius(baseR * impW * growth);
-      return { id: ch.id, chore: ch, r, urgency: urgencyOf(ch, completions, pauses), hue: bubbleHue(i) };
+    const ranked = rankBubbleTargets(
+      chores.map((ch, i) => ({
+        id: ch.id,
+        chore: ch,
+        importance: ch.importance,
+        urgency: urgencyOf(ch, completions, pauses),
+        ageDays: activeDaysSinceDone(ch, completions, pauses),
+        hue: bubbleHue(i),
+      })),
+      baseR
+    );
+    const orbit = Math.min(size.w, size.h) * 0.38;
+    return ranked.map((item, index) => {
+      const angle = index * 2.399963229728653;
+      const distance = orbit * (1 - item.prominence);
+      return {
+        ...item,
+        r: item.radius,
+        focusX: size.w / 2 + Math.cos(angle) * distance,
+        focusY: size.h / 2 + Math.sin(angle) * distance * 0.72,
+      };
     });
   }, [chores, completions, pauses, size, simDays]);
 
@@ -285,17 +300,30 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
     const ring = Math.min(size.w, size.h) * 0.32;
     const next = targets.map((t, i) => {
       const p = prev.get(t.id);
-      if (p) return Object.assign(p, { r: t.r, chore: t.chore, urgency: t.urgency, hue: t.hue });
-      // New bubbles enter spread around a ring, not stacked at the center
+      if (p) return Object.assign(p, { r: t.r, chore: t.chore, urgency: t.urgency, prominence: t.prominence, priority: t.priority, focusX: t.focusX, focusY: t.focusY, hue: t.hue });
+      // New bubbles enter near their priority orbit instead of stacking.
       const angle = (i / Math.max(count, 1)) * Math.PI * 2;
-      return { ...t, x: size.w / 2 + Math.cos(angle) * ring, y: size.h / 2 + Math.sin(angle) * ring };
+      return {
+        ...t,
+        x: Number.isFinite(t.focusX) ? t.focusX : size.w / 2 + Math.cos(angle) * ring,
+        y: Number.isFinite(t.focusY) ? t.focusY : size.h / 2 + Math.sin(angle) * ring,
+      };
     });
     nodesRef.current = next;
     if (simRef.current) simRef.current.stop();
+    const priorityOrbit = Math.min(size.w, size.h) * 0.38;
     const sim = d3
       .forceSimulation(next)
-      .force("x", d3.forceX(size.w / 2).strength(0.035))
-      .force("y", d3.forceY(size.h / 2).strength(0.042))
+      .force("x", d3.forceX((d) => d.focusX).strength((d) => 0.018 + 0.055 * d.prominence))
+      .force("y", d3.forceY((d) => d.focusY).strength((d) => 0.02 + 0.06 * d.prominence))
+      .force(
+        "priorityOrbit",
+        d3.forceRadial(
+          (d) => priorityOrbit * (1 - d.prominence),
+          size.w / 2,
+          size.h / 2
+        ).strength((d) => 0.1 + 0.35 * d.prominence)
+      )
       .force("collide", d3.forceCollide((d) => d.r + 7).strength(1).iterations(3))
       .velocityDecay(0.28)
       .alpha(0.9)
@@ -435,7 +463,11 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
               WebkitTapHighlightColor: "transparent",
               animation: popId === n.id ? `pop 0.65s ease-out` : `breathe ${overdue ? 2.2 : 3.6}s ease-in-out infinite`,
               transition: "width 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), height 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), box-shadow 0.35s ease, outline-color 0.35s ease",
-              zIndex: dragRef.current && dragRef.current.id === n.id ? 5 : suggested ? 3 : 1,
+              zIndex: dragRef.current && dragRef.current.id === n.id
+                ? 6
+                : suggested
+                ? 5
+                : 1 + Math.round(n.prominence * 3),
             }}
           >
             {popId === n.id && (
