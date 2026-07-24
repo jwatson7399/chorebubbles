@@ -31,6 +31,15 @@ import {
   lastDoneLabel,
 } from "./choreHistory.js";
 import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
+import { clampBubbleRadius, usesCompactBubbleLabel } from "./bubblePresentation.js";
+import {
+  advanceTwoStepChore,
+  disableTwoStepChore,
+  enableTwoStepChore,
+  isTwoStepChore,
+  materializeTwoStepChore,
+  updateTwoStep,
+} from "./twoStepChore.js";
 
 // ChoreBubbles: a shared household chore ecosystem.
 // Bubbles swell as chores go undone. Tap to complete, drag to rearrange.
@@ -110,6 +119,22 @@ function applyOperation(value, op) {
     case "completion:add-many": {
       const known = new Set(data.completions.map((item) => item.id));
       next = { ...data, completions: [...data.completions, ...(op.completions || []).filter((item) => !known.has(item.id))] };
+      break;
+    }
+    case "completion:add-and-advance": {
+      if (data.completions.some((item) => item.id === op.completion.id)) break;
+      const chores = data.chores.map((item) =>
+        item.id === op.choreId ? advanceTwoStepChore(item) : item
+      );
+      next = { ...data, chores, completions: [...data.completions, op.completion] };
+      break;
+    }
+    case "completion:remove-and-restore": {
+      const ids = new Set(op.ids || []);
+      const chores = data.chores.map((item) =>
+        item.id === op.chore?.id ? op.chore : item
+      );
+      next = { ...data, chores, completions: data.completions.filter((item) => !ids.has(item.id)) };
       break;
     }
     case "completion:remove": {
@@ -249,7 +274,7 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
       const impW = 0.5 + 0.16 * ch.importance;
       // Urgency swells the bubble from its fresh size toward overdue
       const growth = 0.5 + 0.8 * (u / 2.2);
-      const r = Math.max(Math.min(baseR * impW * growth, 100), 17);
+      const r = clampBubbleRadius(baseR * impW * growth);
       return { id: ch.id, chore: ch, r, urgency: urgencyOf(ch, completions, pauses), hue: bubbleHue(i) };
     });
   }, [chores, completions, pauses, size, simDays]);
@@ -374,6 +399,7 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
         const due = n.urgency >= 1;
         const overdue = n.urgency >= 1.5;
         const suggested = suggestedIds?.has(n.id);
+        const compactLabel = usesCompactBubbleLabel(n.r);
         const bubbleShadow = due
           ? `0 0 ${overdue ? 26 : 14}px ${n.hue}${overdue ? "AA" : "66"}, inset 0 0 12px rgba(255,255,255,0.25)`
           : "inset 0 0 10px rgba(255,255,255,0.18)";
@@ -381,6 +407,7 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
           <div
             key={n.id}
             aria-label={`${n.chore.name}, ${n.chore.difficulty} point${n.chore.difficulty === 1 ? "" : "s"}${suggested ? ", suggested chore" : ""}`}
+            data-label-mode={compactLabel ? "compact" : "full"}
             onPointerDown={(e) => onPointerDown(e, n)}
             onPointerMove={(e) => onPointerMove(e, n)}
             onPointerUp={(e) => onPointerUp(e, n)}
@@ -414,33 +441,78 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
             {popId === n.id && (
               <span style={{ position: "absolute", top: -14, right: -6, fontSize: 20, animation: "sparkleUp 0.9s ease-out forwards", pointerEvents: "none" }}>✨</span>
             )}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, padding: 4, overflow: "hidden", pointerEvents: "none" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 1,
+                width: compactLabel ? "96%" : "82%",
+                padding: compactLabel ? 2 : 4,
+                overflow: "hidden",
+                pointerEvents: "none",
+                transform: compactLabel ? "translateY(-2px)" : "none",
+              }}
+            >
               <span
                 style={{
                   fontFamily: "'Baloo 2', sans-serif",
-                  fontWeight: 600,
-                  fontSize: Math.max(9, Math.min(n.r * 0.3, 16)),
+                  fontWeight: 700,
+                  fontSize: Math.max(10.5, Math.min(n.r * 0.28, 16)),
                   color: "#0C1B26",
                   textAlign: "center",
-                  lineHeight: 1.12,
+                  lineHeight: 1.06,
+                  width: "100%",
+                  display: "-webkit-box",
+                  WebkitBoxOrient: "vertical",
+                  WebkitLineClamp: compactLabel ? 2 : 3,
+                  overflow: "hidden",
+                  overflowWrap: "break-word",
                 }}
               >
                 {n.chore.name}
               </span>
+              {!compactLabel && (
+                <span
+                  style={{
+                    fontFamily: "'Baloo 2', sans-serif",
+                    fontWeight: 800,
+                    fontSize: Math.max(9, Math.min(n.r * 0.22, 12)),
+                    color: "#0C1B26",
+                    opacity: 0.62,
+                    lineHeight: 1,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {n.chore.difficulty} pt{n.chore.difficulty === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+            {compactLabel && (
               <span
+                aria-hidden="true"
                 style={{
+                  position: "absolute",
+                  right: "7%",
+                  bottom: "6%",
+                  width: Math.max(16, Math.min(n.r * 0.56, 20)),
+                  height: Math.max(16, Math.min(n.r * 0.56, 20)),
+                  borderRadius: "50%",
+                  display: "grid",
+                  placeItems: "center",
+                  background: "rgba(12,27,38,0.88)",
+                  color: "#E8F3F4",
+                  border: "1px solid rgba(255,255,255,0.4)",
                   fontFamily: "'Baloo 2', sans-serif",
                   fontWeight: 800,
-                  fontSize: Math.max(8, Math.min(n.r * 0.22, 12)),
-                  color: "#0C1B26",
-                  opacity: 0.55,
+                  fontSize: 10,
                   lineHeight: 1,
-                  whiteSpace: "nowrap",
+                  pointerEvents: "none",
                 }}
               >
-                {n.chore.difficulty} pt{n.chore.difficulty === 1 ? "" : "s"}
+                {n.chore.difficulty}
               </span>
-            </div>
+            )}
           </div>
         );
       })}
@@ -538,6 +610,25 @@ function ScaleSelector({ label, hint, value, min, max, onChange, valueLabel, end
         </div>
       )}
     </div>
+  );
+}
+
+function ChoreFields({ title, value, onChange }) {
+  const importanceText = (level) => ["", "Low", "Mild", "Medium", "High", "Critical"][level];
+  const effortText = (level) => ["", "Very easy", "Easy", "Moderate", "Hard", "Very hard"][level];
+  return (
+    <section style={title ? { marginTop: 12, padding: "12px 12px 4px", background: "#102733", border: "1px solid #1A3B49", borderRadius: 14 } : undefined}>
+      {title && <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 15, fontWeight: 700, color: "#5FE0BB", marginBottom: 8 }}>{title}</div>}
+      <input
+        value={value.name}
+        placeholder={`${title || "Chore"} name`}
+        onChange={(event) => onChange({ name: event.target.value })}
+        style={{ width: "100%", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 12, padding: "12px 14px", color: "#E8F3F4", fontSize: 15, fontFamily: "inherit", marginBottom: 6 }}
+      />
+      <ScaleSelector label="Importance" hint="How much does it matter if this slips?" value={value.importance} min={1} max={5} onChange={(importance) => onChange({ importance })} valueLabel={importanceText} endLabels={["Low", "Critical"]} />
+      <ScaleSelector label="Effort" hint="How hard is this step?" value={value.difficulty} min={1} max={5} onChange={(difficulty) => onChange({ difficulty })} valueLabel={effortText} endLabels={["Very easy", "Very hard"]} />
+      <Stepper label="Goal frequency" value={value.freqDays} min={1} max={60} onChange={(freqDays) => onChange({ freqDays })} format={(days) => `every ${days}d`} />
+    </section>
   );
 }
 
@@ -930,8 +1021,20 @@ export default function ChoreBubbles() {
   const logCompletion = (chore, by) => {
     // "when" lets you backdate a chore you forgot to log (e.g. done yesterday).
     const ts = now() - tapWhenDays * DAY;
-    const comp = { id: uid(), choreId: chore.id, choreName: chore.name, difficulty: chore.difficulty, by, ts };
-    if (!commit({ type: "completion:add", completion: comp })) return;
+    const twoStep = isTwoStepChore(chore);
+    const comp = {
+      id: uid(),
+      choreId: chore.id,
+      choreName: chore.name,
+      difficulty: chore.difficulty,
+      by,
+      ts,
+      ...(twoStep ? { twoStepIndex: chore.twoStep.active } : {}),
+    };
+    const operation = twoStep
+      ? { type: "completion:add-and-advance", completion: comp, choreId: chore.id }
+      : { type: "completion:add", completion: comp };
+    if (!commit(operation)) return;
     setTapChore(null);
     setTapWhenDays(0);
     setPopId(chore.id);
@@ -939,8 +1042,11 @@ export default function ChoreBubbles() {
     popTimer.current = setTimeout(() => setPopId(null), 1000);
     const who = by === "joint" ? "together" : by === "a" ? view.settings.nameA : view.settings.nameB;
     const when = tapWhenDays === 0 ? "" : tapWhenDays === 1 ? " (yesterday)" : ` (${tapWhenDays}d ago)`;
-    showToast(`${chore.name} done ${by === "joint" ? "" : "by "}${who}${when}`, () => {
-      commit({ type: "completion:remove", ids: [comp.id] });
+    const nextStep = twoStep ? advanceTwoStepChore(chore).name : "";
+    showToast(`${chore.name} done ${by === "joint" ? "" : "by "}${who}${when}${nextStep ? ` · ${nextStep} is up next` : ""}`, () => {
+      commit(twoStep
+        ? { type: "completion:remove-and-restore", ids: [comp.id], chore }
+        : { type: "completion:remove", ids: [comp.id] });
       setToast(null);
     });
   };
@@ -966,7 +1072,8 @@ export default function ChoreBubbles() {
   };
 
   const saveChore = (ch) => {
-    const chore = ch.id ? ch : { ...ch, id: uid(), createdAt: realNow() };
+    const normalized = isTwoStepChore(ch) ? materializeTwoStepChore(ch) : ch;
+    const chore = normalized.id ? normalized : { ...normalized, id: uid(), createdAt: realNow() };
     if (commit({ type: "chore:upsert", chore })) setEditChore(null);
   };
 
@@ -1103,6 +1210,7 @@ export default function ChoreBubbles() {
     setBubbleSuggestionsVisible(true);
     setSuggestionSeed((seed) => seed + 1);
   };
+  const hideBubbleSuggestions = () => setBubbleSuggestionsVisible(false);
   const togetherPoints = pointsA + pointsB;
   const togetherGoal = goal * 2;
   const previousRecap = !previousHasActivity
@@ -1116,7 +1224,6 @@ export default function ChoreBubbles() {
     : `Previous 7 days: ${previousA + previousB} points together`;
 
   const impLabel = (v) => ["", "Low", "Mild", "Medium", "High", "Critical"][v];
-  const effortLabel = (v) => ["", "Very easy", "Easy", "Moderate", "Hard", "Very hard"][v];
 
   return (
     <div style={{ height: "100dvh", display: "flex", flexDirection: "column", background: "radial-gradient(120% 100% at 50% 0%, #123240 0%, #0C1B26 70%)", fontFamily: "'Nunito Sans', sans-serif", color: "#E8F3F4", overflow: "hidden" }}>
@@ -1224,20 +1331,31 @@ export default function ChoreBubbles() {
           )}
           <BubbleField chores={view.chores} completions={view.completions} pauses={pauses} onTap={(ch) => { setTapWhenDays(0); setTapChore(ch); }} popId={popId} simDays={simDays} suggestedIds={suggestedBubbleIds} />
           <div style={{ padding: "0 20px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
-            <button
-              disabled={!canShuffleSuggestions}
-              onClick={shuffleSuggestions}
-              aria-pressed={bubbleSuggestionsVisible && suggestedBubbleIds.size > 0}
-              aria-label="Shuffle chore suggestions to reach the green zone"
-              style={{
-                ...btnStyle(bubbleSuggestionsVisible && suggestedBubbleIds.size > 0 ? "#3B3415" : "#0F2530", "#FFE27A"),
-                width: "100%",
-                border: `1px solid ${bubbleSuggestionsVisible && suggestedBubbleIds.size > 0 ? "#C9A92C" : "#554B25"}`,
-                opacity: canShuffleSuggestions ? 1 : 0.45,
-              }}
-            >
-              🎲 Shuffle chore suggestions
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                disabled={!canShuffleSuggestions}
+                onClick={shuffleSuggestions}
+                aria-pressed={bubbleSuggestionsVisible && suggestedBubbleIds.size > 0}
+                aria-label="Shuffle chore suggestions to reach the green zone"
+                style={{
+                  ...btnStyle(bubbleSuggestionsVisible && suggestedBubbleIds.size > 0 ? "#3B3415" : "#0F2530", "#FFE27A"),
+                  flex: 1,
+                  border: `1px solid ${bubbleSuggestionsVisible && suggestedBubbleIds.size > 0 ? "#C9A92C" : "#554B25"}`,
+                  opacity: canShuffleSuggestions ? 1 : 0.45,
+                }}
+              >
+                🎲 Shuffle chore suggestions
+              </button>
+              {bubbleSuggestionsVisible && suggestedBubbleIds.size > 0 && (
+                <button
+                  onClick={hideBubbleSuggestions}
+                  aria-label="Hide chore suggestions"
+                  style={{ ...btnStyle("#2B2417", "#FFE27A"), width: 52, padding: 0, border: "1px solid #8A722A", fontSize: 18 }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
             <button onClick={openService} style={{ ...btnStyle("#0F2530", "#5FE0BB"), width: "100%", border: "1px solid #1E4152" }}>
               🧹 Cleaning service came
             </button>
@@ -1586,15 +1704,28 @@ export default function ChoreBubbles() {
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 19, fontWeight: 700, marginBottom: 14 }}>
             {editChore.id ? "Edit chore" : "New chore"}
           </div>
-          <input
-            value={editChore.name}
-            placeholder="Chore name"
-            onChange={(e) => setEditChore({ ...editChore, name: e.target.value })}
-            style={{ width: "100%", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 12, padding: "12px 14px", color: "#E8F3F4", fontSize: 15, fontFamily: "inherit", marginBottom: 6 }}
-          />
-          <ScaleSelector label="Importance" hint="How much does it matter if this slips?" value={editChore.importance} min={1} max={5} onChange={(v) => setEditChore({ ...editChore, importance: v })} valueLabel={impLabel} endLabels={["Low", "Critical"]} />
-          <ScaleSelector label="Effort" hint="How hard is this chore?" value={editChore.difficulty} min={1} max={5} onChange={(v) => setEditChore({ ...editChore, difficulty: v })} valueLabel={effortLabel} endLabels={["Very easy", "Very hard"]} />
-          <Stepper label="Goal frequency" value={editChore.freqDays} min={1} max={60} onChange={(v) => setEditChore({ ...editChore, freqDays: v })} format={(v) => `every ${v}d`} />
+          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0 12px", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={isTwoStepChore(editChore)}
+              onChange={(event) => setEditChore(event.target.checked ? enableTwoStepChore(editChore) : disableTwoStepChore(editChore))}
+              style={{ width: 19, height: 19, marginTop: 1, accentColor: "#5FE0BB" }}
+            />
+            <span>
+              <span style={{ display: "block", fontSize: 14, color: "#E8F3F4", fontWeight: 700 }}>Two-step chore</span>
+              <span style={{ display: "block", fontSize: 11.5, color: "#7FA3AC", lineHeight: 1.35, marginTop: 2 }}>
+                Completing either step swaps its bubble to the other. Only one step is visible at a time.
+              </span>
+            </span>
+          </label>
+          {isTwoStepChore(editChore) ? (
+            <>
+              <ChoreFields title={`Step 1${editChore.twoStep.active === 0 ? " · visible now" : ""}`} value={editChore.twoStep.steps[0]} onChange={(patch) => setEditChore(updateTwoStep(editChore, 0, patch))} />
+              <ChoreFields title={`Step 2${editChore.twoStep.active === 1 ? " · visible now" : ""}`} value={editChore.twoStep.steps[1]} onChange={(patch) => setEditChore(updateTwoStep(editChore, 1, patch))} />
+            </>
+          ) : (
+            <ChoreFields value={editChore} onChange={(patch) => setEditChore({ ...editChore, ...patch })} />
+          )}
           <label style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", cursor: "pointer" }}>
             <input
               type="checkbox"
@@ -1644,7 +1775,21 @@ export default function ChoreBubbles() {
             {editChore.id && (
               <button onClick={() => deleteChore(editChore.id)} style={{ ...btnStyle("#0F2530", "#FF8B7B"), flex: 1, border: "1px solid #1E4152" }}>Delete</button>
             )}
-            <button onClick={() => editChore.name.trim() && saveChore(editChore)} style={{ ...btnStyle("#5FE0BB"), flex: 2, opacity: editChore.name.trim() ? 1 : 0.5 }}>
+            <button
+              onClick={() => {
+                const namesReady = isTwoStepChore(editChore)
+                  ? editChore.twoStep.steps.every((step) => step.name.trim())
+                  : editChore.name.trim();
+                if (namesReady) saveChore(editChore);
+              }}
+              style={{
+                ...btnStyle("#5FE0BB"),
+                flex: 2,
+                opacity: (isTwoStepChore(editChore)
+                  ? editChore.twoStep.steps.every((step) => step.name.trim())
+                  : editChore.name.trim()) ? 1 : 0.5,
+              }}
+            >
               Save chore
             </button>
           </div>
