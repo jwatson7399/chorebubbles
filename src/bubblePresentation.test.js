@@ -1,23 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
   COMPACT_LABEL_MAX_RADIUS,
-  MIN_BUBBLE_RADIUS,
+  MIN_BUBBLE_HIT_DIAMETER,
   bubblePriority,
+  bubbleHitDiameter,
   clampBubbleRadius,
   rankBubbleTargets,
   usesCompactBubbleLabel,
 } from "./bubblePresentation.js";
 
 describe("bubble presentation", () => {
-  it("keeps every bubble at least 46 pixels across", () => {
-    expect(clampBubbleRadius(17)).toBe(MIN_BUBBLE_RADIUS);
-    expect(MIN_BUBBLE_RADIUS * 2).toBe(46);
+  it("allows visual bubbles to shrink without shrinking the tap target", () => {
+    expect(clampBubbleRadius(17)).toBe(17);
+    expect(clampBubbleRadius(4)).toBe(4);
+    expect(clampBubbleRadius(-2)).toBe(0);
     expect(clampBubbleRadius(72)).toBe(72);
     expect(clampBubbleRadius(140)).toBe(100);
+    expect(bubbleHitDiameter(8)).toBe(MIN_BUBBLE_HIT_DIAMETER);
+    expect(bubbleHitDiameter(30)).toBe(60);
   });
 
   it("uses compact labels below the large-bubble threshold", () => {
-    expect(usesCompactBubbleLabel(MIN_BUBBLE_RADIUS)).toBe(true);
+    expect(usesCompactBubbleLabel(12)).toBe(true);
     expect(usesCompactBubbleLabel(COMPACT_LABEL_MAX_RADIUS - 0.1)).toBe(true);
     expect(usesCompactBubbleLabel(COMPACT_LABEL_MAX_RADIUS)).toBe(false);
   });
@@ -41,6 +45,17 @@ describe("bubble presentation", () => {
       .toBeGreaterThan(bubblePriority({ importance: 2, urgency: 2, ageDays: 14 }));
     expect(bubblePriority({ importance: 3, urgency: 2, ageDays: 28 }))
       .toBeGreaterThan(bubblePriority({ importance: 3, urgency: 2, ageDays: 7 }));
+  });
+
+  it("preserves importance differences while the house is maintained", () => {
+    const targets = rankBubbleTargets([
+      { id: "low", importance: 1, urgency: 0, ageDays: 0 },
+      { id: "critical", importance: 5, urgency: 0, ageDays: 0 },
+    ], 50);
+    const byId = Object.fromEntries(targets.map((item) => [item.id, item]));
+
+    expect(byId.low.radius).toBeLessThan(23);
+    expect(byId.critical.radius).toBeGreaterThan(byId.low.radius * 1.8);
   });
 
   it("gives genuinely equal chores equal prominence and size", () => {

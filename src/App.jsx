@@ -31,7 +31,7 @@ import {
   lastDoneLabel,
 } from "./choreHistory.js";
 import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
-import { rankBubbleTargets, usesCompactBubbleLabel } from "./bubblePresentation.js";
+import { bubbleHitDiameter, rankBubbleTargets, usesCompactBubbleLabel } from "./bubblePresentation.js";
 import {
   advanceTwoStepChore,
   disableTwoStepChore,
@@ -428,6 +428,8 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
         const overdue = n.urgency >= 1.5;
         const suggested = suggestedIds?.has(n.id);
         const compactLabel = usesCompactBubbleLabel(n.r);
+        const hitDiameter = bubbleHitDiameter(n.r);
+        const showInlineLabel = n.r >= 14;
         const bubbleShadow = due
           ? `0 0 ${overdue ? 26 : 14}px ${n.hue}${overdue ? "AA" : "66"}, inset 0 0 12px rgba(255,255,255,0.25)`
           : "inset 0 0 10px rgba(255,255,255,0.18)";
@@ -435,7 +437,7 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
           <div
             key={n.id}
             aria-label={`${n.chore.name}, ${n.chore.difficulty} point${n.chore.difficulty === 1 ? "" : "s"}${suggested ? ", suggested chore" : ""}`}
-            data-label-mode={compactLabel ? "compact" : "full"}
+            data-label-mode={!showInlineLabel ? "hidden" : compactLabel ? "compact" : "full"}
             onPointerDown={(e) => onPointerDown(e, n)}
             onPointerMove={(e) => onPointerMove(e, n)}
             onPointerUp={(e) => onPointerUp(e, n)}
@@ -443,26 +445,16 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
             onLostPointerCapture={(e) => onLostPointerCapture(e, n)}
             style={{
               position: "absolute",
-              left: n.x - n.r,
-              top: n.y - n.r,
-              width: n.r * 2,
-              height: n.r * 2,
-              borderRadius: "50%",
-              background: `radial-gradient(circle at 32% 30%, ${n.hue}F5, ${n.hue}AA 60%, ${n.hue}66)`,
-              boxShadow: suggested
-                ? `${bubbleShadow}, 0 0 0 3px #FFD95A, 0 0 22px #FFD95ADD, 0 0 42px #FFD95A88`
-                : bubbleShadow,
-              outline: suggested ? "2px solid #FFF0A6" : "none",
-              outlineOffset: suggested ? 3 : 0,
-              border: due ? `2px solid ${n.hue}` : `1.5px solid ${n.hue}66`,
+              left: n.x - hitDiameter / 2,
+              top: n.y - hitDiameter / 2,
+              width: hitDiameter,
+              height: hitDiameter,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               cursor: dragRef.current && dragRef.current.id === n.id ? "grabbing" : "grab",
               userSelect: "none",
               WebkitTapHighlightColor: "transparent",
-              animation: popId === n.id ? `pop 0.65s ease-out` : `breathe ${overdue ? 2.2 : 3.6}s ease-in-out infinite`,
-              transition: "width 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), height 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), box-shadow 0.35s ease, outline-color 0.35s ease",
               zIndex: dragRef.current && dragRef.current.id === n.id
                 ? 6
                 : suggested
@@ -470,81 +462,107 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
                 : 1 + Math.round(n.prominence * 3),
             }}
           >
-            {popId === n.id && (
-              <span style={{ position: "absolute", top: -14, right: -6, fontSize: 20, animation: "sparkleUp 0.9s ease-out forwards", pointerEvents: "none" }}>✨</span>
-            )}
             <div
               style={{
+                position: "relative",
+                width: n.r * 2,
+                height: n.r * 2,
+                flexShrink: 0,
+                borderRadius: "50%",
+                background: `radial-gradient(circle at 32% 30%, ${n.hue}F5, ${n.hue}AA 60%, ${n.hue}66)`,
+                boxShadow: suggested
+                  ? `${bubbleShadow}, 0 0 0 3px #FFD95A, 0 0 22px #FFD95ADD, 0 0 42px #FFD95A88`
+                  : bubbleShadow,
+                outline: suggested ? "2px solid #FFF0A6" : "none",
+                outlineOffset: suggested ? 3 : 0,
+                border: due ? `2px solid ${n.hue}` : `1.5px solid ${n.hue}66`,
                 display: "flex",
-                flexDirection: "column",
                 alignItems: "center",
-                gap: 1,
-                width: compactLabel ? "96%" : "82%",
-                padding: compactLabel ? 2 : 4,
+                justifyContent: "center",
                 overflow: "hidden",
                 pointerEvents: "none",
-                transform: compactLabel ? "translateY(-2px)" : "none",
+                animation: popId === n.id ? `pop 0.65s ease-out` : `breathe ${overdue ? 2.2 : 3.6}s ease-in-out infinite`,
+                transition: "width 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), height 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), box-shadow 0.35s ease, outline-color 0.35s ease",
               }}
             >
-              <span
-                style={{
-                  fontFamily: "'Baloo 2', sans-serif",
-                  fontWeight: 700,
-                  fontSize: Math.max(10.5, Math.min(n.r * 0.28, 16)),
-                  color: "#0C1B26",
-                  textAlign: "center",
-                  lineHeight: 1.06,
-                  width: "100%",
-                  display: "-webkit-box",
-                  WebkitBoxOrient: "vertical",
-                  WebkitLineClamp: compactLabel ? 2 : 3,
-                  overflow: "hidden",
-                  overflowWrap: "break-word",
-                }}
-              >
-                {n.chore.name}
-              </span>
-              {!compactLabel && (
-                <span
+              {popId === n.id && (
+                <span style={{ position: "absolute", top: -14, right: -6, fontSize: 20, animation: "sparkleUp 0.9s ease-out forwards", pointerEvents: "none" }}>✨</span>
+              )}
+              {showInlineLabel && (
+                <div
                   style={{
-                    fontFamily: "'Baloo 2', sans-serif",
-                    fontWeight: 800,
-                    fontSize: Math.max(9, Math.min(n.r * 0.22, 12)),
-                    color: "#0C1B26",
-                    opacity: 0.62,
-                    lineHeight: 1,
-                    whiteSpace: "nowrap",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: 1,
+                    width: compactLabel ? "96%" : "82%",
+                    padding: compactLabel ? 2 : 4,
+                    overflow: "hidden",
+                    pointerEvents: "none",
+                    transform: compactLabel ? "translateY(-2px)" : "none",
                   }}
                 >
-                  {n.chore.difficulty} pt{n.chore.difficulty === 1 ? "" : "s"}
+                  <span
+                    style={{
+                      fontFamily: "'Baloo 2', sans-serif",
+                      fontWeight: 700,
+                      fontSize: Math.max(8, Math.min(n.r * 0.28, 16)),
+                      color: "#0C1B26",
+                      textAlign: "center",
+                      lineHeight: 1.06,
+                      width: "100%",
+                      display: "-webkit-box",
+                      WebkitBoxOrient: "vertical",
+                      WebkitLineClamp: compactLabel ? 2 : 3,
+                      overflow: "hidden",
+                      overflowWrap: "break-word",
+                    }}
+                  >
+                    {n.chore.name}
+                  </span>
+                  {!compactLabel && (
+                    <span
+                      style={{
+                        fontFamily: "'Baloo 2', sans-serif",
+                        fontWeight: 800,
+                        fontSize: Math.max(9, Math.min(n.r * 0.22, 12)),
+                        color: "#0C1B26",
+                        opacity: 0.62,
+                        lineHeight: 1,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {n.chore.difficulty} pt{n.chore.difficulty === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+              )}
+              {compactLabel && showInlineLabel && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    right: "7%",
+                    bottom: "6%",
+                    width: Math.max(12, Math.min(n.r * 0.56, 20)),
+                    height: Math.max(12, Math.min(n.r * 0.56, 20)),
+                    borderRadius: "50%",
+                    display: "grid",
+                    placeItems: "center",
+                    background: "rgba(12,27,38,0.88)",
+                    color: "#E8F3F4",
+                    border: "1px solid rgba(255,255,255,0.4)",
+                    fontFamily: "'Baloo 2', sans-serif",
+                    fontWeight: 800,
+                    fontSize: 9,
+                    lineHeight: 1,
+                    pointerEvents: "none",
+                  }}
+                >
+                  {n.chore.difficulty}
                 </span>
               )}
             </div>
-            {compactLabel && (
-              <span
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  right: "7%",
-                  bottom: "6%",
-                  width: Math.max(16, Math.min(n.r * 0.56, 20)),
-                  height: Math.max(16, Math.min(n.r * 0.56, 20)),
-                  borderRadius: "50%",
-                  display: "grid",
-                  placeItems: "center",
-                  background: "rgba(12,27,38,0.88)",
-                  color: "#E8F3F4",
-                  border: "1px solid rgba(255,255,255,0.4)",
-                  fontFamily: "'Baloo 2', sans-serif",
-                  fontWeight: 800,
-                  fontSize: 10,
-                  lineHeight: 1,
-                  pointerEvents: "none",
-                }}
-              >
-                {n.chore.difficulty}
-              </span>
-            )}
           </div>
         );
       })}
