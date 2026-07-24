@@ -117,6 +117,33 @@ Each emoji was chosen to encode the *same* three-step severity the color already
 
 ---
 
+## 8. Two-step alternating chores and the bubble-size/label trade-off
+
+**Objective.** Support chores that are really a *pair* of alternating actions — load ↔ unload the dishwasher, put out ↔ bring in the bins — where completing one step should surface the other, without cluttering the field with two separate bubbles. A second, coupled objective emerged during review: keep bubble labels legible after this feature raised the pressure on small bubbles.
+
+**Methodology / data.** The feature (authored on the parallel Codex track, then reviewed and integrated per the §7 method — read the diff, check it against the codebase's rules, prove it green) models a two-step chore as normal chore fields plus a `twoStep: { enabled, active, steps: [stepA, stepB] }` structure. All state transitions live in a new pure module `src/twoStepChore.js` with vitest coverage (`twoStepChore.test.js`, 4 tests):
+- `enableTwoStepChore` / `disableTwoStepChore` convert between a plain chore and a step-pair (disable collapses to the currently active step, so no data is lost).
+- `updateTwoStep` edits one step while leaving the other untouched, and **defers name normalization** so an in-progress edit like `"Load "` (trailing space) or `""` is preserved in the field and only cleaned at save/materialize time — otherwise typing would fight the user.
+- `materializeTwoStepChore` clamps/normalizes stored values (importance 1–5, effort 1–5, freq 1–60, non-empty name → `"Step N"`) and projects the active step's fields onto the top-level chore so the rest of the app can treat it like any single chore.
+- `advanceTwoStepChore` flips `active` 0↔1 — this is what makes completing a step swap the visible bubble.
+
+**Sync-model integration.** Rather than bolt the swap onto the client, two new operations were added to `applyOperation` so the step advance rides the same conflict-safe op-replay pipeline (§ engineering notes / README "Sync model"):
+- `completion:add-and-advance` — logs the completion *and* advances the chore's active step in one atomic op.
+- `completion:remove-and-restore` — the undo path; removes the completion and restores the exact prior chore object (so undoing a step-completion also rewinds the swap).
+The completion records which step it credited via `twoStepIndex`, and the success toast previews the next step ("… · *Unload dishwasher* is up next").
+
+**Editing UI.** The chore-edit form's fields (name, importance, effort, frequency) were extracted into a reusable `ChoreFields` component so the same inputs serve a normal chore and each of the two steps. A "Two-step chore" checkbox toggles between one `ChoreFields` and two (labeled "Step 1 / Step 2 · visible now"); save validation requires *both* step names when two-step is on.
+
+**Results.** All 28 tests pass; the feature was committed and deployed (live verified HTTP 200).
+
+**Design rationale / the bubble-size trade-off.** Two-step editing and denser labels exposed a legibility problem on small bubbles, so bubble presentation was also pulled into a pure module `src/bubblePresentation.js` (`clampBubbleRadius`, `usesCompactBubbleLabel`; 2 tests):
+- Below a 40px-radius threshold, bubbles switch to a **compact label** (line-clamped name + a small circular corner badge showing the effort number) instead of the full name + "N pts" line — so even tiny bubbles stay readable.
+- The **minimum radius** became the contended knob. Codex first raised it from 17 to 30 (34px→60px across) for label legibility, but that partially undid an earlier explicit user preference ("make minor chores appear as *smaller* bubbles"). This was surfaced to the user rather than silently kept, and the floor was negotiated down to **23** (46px across) — a compromise that restores much of the small-bubble size signal while the compact-label mode keeps text legible at that size. The min-radius constant is the single source of truth (the test that asserted `MIN_BUBBLE_RADIUS * 2` was updated alongside it), so this value can be re-tuned in one place.
+
+**Congruency note.** Both new modules follow the established "pure logic in tested modules" rule, and the sizing constant plus label-mode threshold being centralized in `bubblePresentation.js` means the size/legibility balance is a deliberate, adjustable design parameter rather than a scatter of magic numbers in the render path.
+
+---
+
 ## Engineering practice notes
 
 - **Pure logic is extracted and unit-tested.** Scoring (`logModel.js`) and drag physics (`bubblePhysics.js`) live in standalone modules with vitest coverage (`npm test`); the React component consumes them. This keeps the testable rules independent of the UI.
