@@ -117,3 +117,13 @@ export function removePendingOperations(ids) {
 const ME_KEY = "chorebubbles:me";
 export const getMe = () => localStorage.getItem(ME_KEY);
 export const setMe = (who) => localStorage.setItem(ME_KEY, who);
+
+const marker = (key) => {
+  const value = Number(localStorage.getItem(key));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+};
+
+export const getSeenThrough = (me) => marker(`chorebubbles:seen:${me}`);
+export const setSeenThrough = (me, at) => localStorage.setItem(`chorebubbles:seen:${me}`, String(Number(at) || 0));
+export const getKudosSeenThrough = (me) => marker(`chorebubbles:kudosSeen:${me}`);
+export const setKudosSeenThrough = (me, at) => localStorage.setItem(`chorebubbles:kudosSeen:${me}`, String(Number(at) || 0));

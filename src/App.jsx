@@ -13,6 +13,10 @@ import {
   signOut,
   getMe as loadMe,
   setMe as saveMe,
+  getSeenThrough,
+  setSeenThrough as saveSeenThrough,
+  getKudosSeenThrough,
+  setKudosSeenThrough as saveKudosSeenThrough,
   isSynced,
 } from "./storage.js";
 import {
@@ -33,12 +37,25 @@ import {
 import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
 import { bubbleHitDiameter, rankBubbleTargets, usesCompactBubbleLabel } from "./bubblePresentation.js";
 import { creditedCompletionIds, shouldPulseHealth } from "./healthPulse.js";
+import { applyOperation, defaultData, normalizeData } from "./dataModel.js";
+import {
+  choreNamesForKudos,
+  kudosFeed,
+  kudosForPerson,
+  newestCompletionTimestamp,
+  newestKudosTimestamp,
+  normalizeKudosMessage,
+  otherPerson,
+  unseenCompletions,
+  unseenKudos,
+} from "./kudos.js";
 import {
   advanceTwoStepChore,
   disableTwoStepChore,
   enableTwoStepChore,
   isTwoStepChore,
   materializeTwoStepChore,
+  normalizeDetails,
   updateTwoStep,
 } from "./twoStepChore.js";
 
@@ -83,107 +100,6 @@ const realNow = () => Date.now();
 let TIME_OFFSET = 0;
 const now = () => Date.now() + TIME_OFFSET;
 
-const defaultData = () => ({
-  chores: [],
-  completions: [],
-  pauses: [],
-  settings: { nameA: "Julian", nameB: "Kristine", weeklyGoal: 14 },
-  updatedAt: 0,
-});
-
-function normalizeData(value) {
-  const defaults = defaultData();
-  const source = value && typeof value === "object" ? value : {};
-  return {
-    ...defaults,
-    ...source,
-    chores: Array.isArray(source.chores) ? source.chores : [],
-    completions: Array.isArray(source.completions) ? source.completions : [],
-    pauses: Array.isArray(source.pauses) ? source.pauses : [],
-    settings: { ...defaults.settings, ...(source.settings || {}) },
-  };
-}
-
-// Operations are intentionally small and replayable. When two phones edit at
-// once, each operation is applied to the newest server state instead of either
-// phone replacing the other phone's entire snapshot.
-function applyOperation(value, op) {
-  const data = normalizeData(value);
-  let next = data;
-
-  switch (op.type) {
-    case "completion:add": {
-      if (data.completions.some((item) => item.id === op.completion.id)) break;
-      next = { ...data, completions: [...data.completions, op.completion] };
-      break;
-    }
-    case "completion:add-many": {
-      const known = new Set(data.completions.map((item) => item.id));
-      next = { ...data, completions: [...data.completions, ...(op.completions || []).filter((item) => !known.has(item.id))] };
-      break;
-    }
-    case "completion:add-and-advance": {
-      if (data.completions.some((item) => item.id === op.completion.id)) break;
-      const chores = data.chores.map((item) =>
-        item.id === op.choreId ? advanceTwoStepChore(item) : item
-      );
-      next = { ...data, chores, completions: [...data.completions, op.completion] };
-      break;
-    }
-    case "completion:remove-and-restore": {
-      const ids = new Set(op.ids || []);
-      const chores = data.chores.map((item) =>
-        item.id === op.chore?.id ? op.chore : item
-      );
-      next = { ...data, chores, completions: data.completions.filter((item) => !ids.has(item.id)) };
-      break;
-    }
-    case "completion:remove": {
-      const ids = new Set(op.ids || []);
-      next = { ...data, completions: data.completions.filter((item) => !ids.has(item.id)) };
-      break;
-    }
-    case "chore:upsert": {
-      const exists = data.chores.some((item) => item.id === op.chore.id);
-      const chores = exists
-        ? data.chores.map((item) => (item.id === op.chore.id ? op.chore : item))
-        : [...data.chores, op.chore];
-      next = { ...data, chores };
-      break;
-    }
-    case "chore:add-many": {
-      const known = new Set(data.chores.map((item) => item.id));
-      next = { ...data, chores: [...data.chores, ...(op.chores || []).filter((item) => !known.has(item.id))] };
-      break;
-    }
-    case "chore:delete":
-      next = { ...data, chores: data.chores.filter((item) => item.id !== op.choreId) };
-      break;
-    case "chore:clear":
-      next = { ...data, chores: [] };
-      break;
-    case "pause:set": {
-      let pauses = [...data.pauses];
-      const active = pauses.filter((item) => item.scope === op.scope && item.end == null);
-      if (op.active && active.length === 0) {
-        pauses.push({ id: op.pauseId, scope: op.scope, start: op.at, end: null });
-      } else if (!op.active && active.length > 0) {
-        const activeIds = new Set(active.map((item) => item.id));
-        pauses = pauses.map((item) => (activeIds.has(item.id) ? { ...item, end: op.at } : item));
-      }
-      next = { ...data, pauses };
-      break;
-    }
-    case "settings:patch":
-      next = { ...data, settings: { ...data.settings, ...op.patch } };
-      break;
-    default:
-      break;
-  }
-
-  return { ...next, updatedAt: Math.max(next.updatedAt || 0, op.createdAt || 0) };
-}
-
 const activePause = (pauses, scope) => (pauses || []).find((p) => p.scope === scope && p.end == null);
 
 function lastDone(chore, completions) {
@@ -199,6 +115,16 @@ function activeDaysSinceDone(chore, completions, pauses) {
 
 function urgencyOf(chore, completions, pauses) {
   return activeDaysSinceDone(chore, completions, pauses) / Math.max(chore.freqDays, 0.25);
+}
+
+function choreTimingLabel(chore, completions, pauses) {
+  const delta = activeDaysSinceDone(chore, completions, pauses) - Math.max(Number(chore.freqDays) || 1, 0.25);
+  if (delta > 0) {
+    const days = Math.max(1, Math.ceil(delta));
+    return `${days} day${days === 1 ? "" : "s"} overdue`;
+  }
+  const days = Math.ceil(Math.abs(delta));
+  return days <= 0 ? "Due today" : `Due in ${days} day${days === 1 ? "" : "s"}`;
 }
 
 // Weighted share of chores currently inside their frequency window
@@ -667,6 +593,7 @@ function ScaleSelector({ label, hint, value, min, max, onChange, valueLabel, end
 function ChoreFields({ title, value, onChange }) {
   const importanceText = (level) => ["", "Low", "Mild", "Medium", "High", "Critical"][level];
   const effortText = (level) => ["", "Very easy", "Easy", "Moderate", "Hard", "Very hard"][level];
+  const detailsLength = typeof value.details === "string" ? value.details.length : 0;
   return (
     <section style={title ? { marginTop: 12, padding: "12px 12px 4px", background: "#102733", border: "1px solid #1A3B49", borderRadius: 14 } : undefined}>
       {title && <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 15, fontWeight: 700, color: "#5FE0BB", marginBottom: 8 }}>{title}</div>}
@@ -679,20 +606,67 @@ function ChoreFields({ title, value, onChange }) {
       <ScaleSelector label="Importance" hint="How much does it matter if this slips?" value={value.importance} min={1} max={5} onChange={(importance) => onChange({ importance })} valueLabel={importanceText} endLabels={["Low", "Critical"]} />
       <ScaleSelector label="Effort" hint="How hard is this step?" value={value.difficulty} min={1} max={5} onChange={(difficulty) => onChange({ difficulty })} valueLabel={effortText} endLabels={["Very easy", "Very hard"]} />
       <Stepper label="Goal frequency" value={value.freqDays} min={1} max={60} onChange={(freqDays) => onChange({ freqDays })} format={(days) => `every ${days}d`} />
+      <label style={{ display: "block", padding: "10px 0 12px" }}>
+        <span style={{ display: "block", color: "#E8F3F4", fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Details</span>
+        <textarea
+          rows={3}
+          value={typeof value.details === "string" ? value.details : ""}
+          placeholder="What counts as done? e.g. includes wiping the sink"
+          onChange={(event) => onChange({ details: event.target.value })}
+          style={{ width: "100%", resize: "vertical", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 12, padding: "12px 14px", color: "#E8F3F4", fontSize: 14, lineHeight: 1.45, fontFamily: "inherit", outline: "none" }}
+        />
+        {detailsLength > 400 && (
+          <span style={{ display: "block", marginTop: 4, color: detailsLength > 500 ? "#FF8B7B" : "#7FA3AC", fontSize: 11.5, textAlign: "right" }}>
+            {detailsLength} / 500{detailsLength > 500 ? " · extra text will be trimmed" : ""}
+          </span>
+        )}
+      </label>
     </section>
+  );
+}
+
+function NotificationBar({ children, style, notice, onOpen }) {
+  if (!notice || !onOpen) return <div style={style}>{children}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={notice.label}
+      style={{
+        ...style,
+        position: "relative",
+        appearance: "none",
+        width: style?.width,
+        background: `${notice.color}0D`,
+        color: "inherit",
+        border: `1px solid ${notice.color}88`,
+        borderRadius: 14,
+        padding: "8px 10px",
+        textAlign: "left",
+        font: "inherit",
+        boxShadow: `0 0 0 1px ${notice.color}33, 0 0 18px ${notice.color}77`,
+        animation: "noticeGlow 2.2s ease-in-out infinite",
+        cursor: "pointer",
+      }}
+    >
+      <span aria-hidden="true" style={{ position: "absolute", top: -9, right: -6, minWidth: 23, height: 23, display: "grid", placeItems: "center", borderRadius: 999, background: "#102733", border: `1px solid ${notice.color}`, fontSize: 13, boxShadow: `0 0 10px ${notice.color}88`, zIndex: 2 }}>
+        {notice.badge}
+      </span>
+      {children}
+    </button>
   );
 }
 
 // Slim zoned bar for the Bubbles tab, so popping a bubble shows your tally move
 // without leaving the screen. The full breakdown still lives on the Log tab.
-function CompactBar({ name, points, goal, greenStart, paused = false }) {
+function CompactBar({ name, points, goal, greenStart, paused = false, notice = null, onOpen = null }) {
   const safeGoal = Math.max(Number(goal) || 0, 1);
   const zone = effortZone(points, safeGoal, greenStart);
   const percent = Math.max(0, Math.min((points / safeGoal) * 100, 100));
   const buildingPct = Math.round((zone.buildingMin / zone.fullScale) * 100);
   const greenPct = Math.round((zone.greenMin / zone.fullScale) * 100);
   return (
-    <div style={{ flex: 1, minWidth: 0, opacity: paused ? 0.62 : 1 }}>
+    <NotificationBar style={{ flex: 1, minWidth: 0, opacity: paused ? 0.62 : 1 }} notice={notice} onOpen={onOpen}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6, marginBottom: 4 }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: "#E8F3F4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {name}{paused ? " 🏖" : ""}
@@ -705,11 +679,11 @@ function CompactBar({ name, points, goal, greenStart, paused = false }) {
         <div aria-hidden="true" style={{ position: "absolute", inset: `0 auto 0 ${buildingPct}%`, width: 1, background: "#D8E9EC55" }} />
         <div aria-hidden="true" style={{ position: "absolute", inset: `0 auto 0 ${greenPct}%`, width: 1, background: "#D8E9EC88" }} />
       </div>
-    </div>
+    </NotificationBar>
   );
 }
 
-function ProgressRow({ label, points, goal, hue, paused = false, prominent = false, zoned = false, greenStart }) {
+function ProgressRow({ label, points, goal, hue, paused = false, prominent = false, zoned = false, greenStart, notice = null, onOpen = null }) {
   const safeGoal = Math.max(Number(goal) || 0, 1);
   const percent = Math.max(0, Math.min((points / safeGoal) * 100, 100));
   const zone = zoned ? effortZone(points, safeGoal, greenStart) : null;
@@ -720,7 +694,7 @@ function ProgressRow({ label, points, goal, hue, paused = false, prominent = fal
   const greenPct = zone ? Math.round((zone.greenMin / zone.fullScale) * 100) : 80;
 
   return (
-    <div style={{ padding: prominent ? "14px 0 12px" : "12px 0", opacity: paused ? 0.72 : 1 }}>
+    <NotificationBar style={{ display: "block", width: "100%", padding: prominent ? "14px 0 12px" : "12px 0", opacity: paused ? 0.72 : 1 }} notice={notice} onOpen={onOpen}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginBottom: 7 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flexWrap: "wrap" }}>
           <span style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: prominent ? 18 : 16, fontWeight: 700, color: "#E8F3F4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -785,7 +759,7 @@ function ProgressRow({ label, points, goal, hue, paused = false, prominent = fal
           </>
         )}
       </div>
-    </div>
+    </NotificationBar>
   );
 }
 
@@ -803,6 +777,14 @@ export default function ChoreBubbles() {
   const [tab, setTab] = useState("bubbles");
   const [tapChore, setTapChore] = useState(null);
   const [tapWhenDays, setTapWhenDays] = useState(0);
+  const [tapHistoryOpen, setTapHistoryOpen] = useState(false);
+  const [seenThrough, setSeenThrough] = useState(0);
+  const [kudosSeenThrough, setKudosSeenThrough] = useState(0);
+  const [markerOwner, setMarkerOwner] = useState(null);
+  const [activitySummary, setActivitySummary] = useState(null);
+  const [kudosComposer, setKudosComposer] = useState(null);
+  const [kudosMessage, setKudosMessage] = useState("");
+  const [kudosViewOpen, setKudosViewOpen] = useState(false);
   const [serviceOpen, setServiceOpen] = useState(false);
   const [serviceSel, setServiceSel] = useState({});
   const [editChore, setEditChore] = useState(null);
@@ -979,6 +961,21 @@ export default function ChoreBubbles() {
     } catch {}
   }, [data, me, askWho, simDays]);
 
+  // Read per-device notification markers without advancing them. Merely
+  // opening the app must never clear either glow.
+  useEffect(() => {
+    if (!me) return;
+    setMarkerOwner(null);
+    try {
+      setSeenThrough(getSeenThrough(me));
+      setKudosSeenThrough(getKudosSeenThrough(me));
+    } catch {
+      setSeenThrough(0);
+      setKudosSeenThrough(0);
+    }
+    setMarkerOwner(me);
+  }, [me]);
+
   useEffect(() => {
     if (!authReady || (isSynced() && !session)) return;
     const refresh = () => {
@@ -1124,7 +1121,9 @@ export default function ChoreBubbles() {
   };
 
   const saveChore = (ch) => {
-    const normalized = isTwoStepChore(ch) ? materializeTwoStepChore(ch) : ch;
+    const normalized = isTwoStepChore(ch)
+      ? materializeTwoStepChore(ch)
+      : { ...ch, details: normalizeDetails(ch.details) };
     const chore = normalized.id ? normalized : { ...normalized, id: uid(), createdAt: realNow() };
     if (commit({ type: "chore:upsert", chore })) setEditChore(null);
   };
@@ -1263,6 +1262,78 @@ export default function ChoreBubbles() {
     view.chores.map((chore) => [chore.id, choreHistoryFor(view.completions, chore.id)])
   );
   const editChoreHistory = editChore?.id ? choreHistories.get(editChore.id) || [] : [];
+  const tapChoreHistory = tapChore?.id ? choreHistories.get(tapChore.id) || [] : [];
+  const unseenOtherActivity = me && markerOwner === me && simDays === 0
+    ? unseenCompletions(view.completions, me, seenThrough)
+    : [];
+  const unreadKudos = me && markerOwner === me && simDays === 0
+    ? unseenKudos(view.kudos, me, kudosSeenThrough)
+    : [];
+  const receivedKudos = me ? kudosForPerson(view.kudos, me) : [];
+  const recentKudos = me ? kudosFeed(view.kudos, view.completions, view.chores, me) : [];
+  const personName = (person) => person === "b" ? settings.nameB : settings.nameA;
+  const other = me ? otherPerson(me) : null;
+  const otherName = other ? personName(other) : "";
+  const openActivitySummary = () => {
+    if (!other || unseenOtherActivity.length === 0) return;
+    setActivitySummary({ person: other, completions: unseenOtherActivity });
+  };
+  const finishActivitySummary = (compose = false) => {
+    if (!activitySummary) return;
+    const marker = newestCompletionTimestamp(activitySummary.completions, seenThrough);
+    try { saveSeenThrough(me, marker); } catch {}
+    setSeenThrough(marker);
+    setActivitySummary(null);
+    if (compose) {
+      setKudosMessage("");
+      setKudosComposer(activitySummary);
+    }
+  };
+  const openKudosView = () => {
+    if (!me || unreadKudos.length === 0) return;
+    const marker = newestKudosTimestamp(unreadKudos, kudosSeenThrough);
+    try { saveKudosSeenThrough(me, marker); } catch {}
+    setKudosSeenThrough(marker);
+    setKudosViewOpen(true);
+  };
+  const sendKudos = () => {
+    if (!me || !kudosComposer) return;
+    const recipient = kudosComposer.person;
+    const kudos = {
+      id: uid(),
+      from: me,
+      to: recipient,
+      at: realNow(),
+      message: normalizeKudosMessage(kudosMessage),
+      completionIds: kudosComposer.completions.map((entry) => entry.id),
+    };
+    if (!commit({ type: "kudos:add", kudos })) return;
+    setKudosComposer(null);
+    setKudosMessage("");
+    showToast(`Kudos sent to ${personName(recipient)} 👏`);
+  };
+  const noticeForPerson = (person) => {
+    if (person === me && unreadKudos.length > 0) {
+      return {
+        badge: "👏",
+        color: "#C7A5F7",
+        label: `Read ${unreadKudos.length} new kudos message${unreadKudos.length === 1 ? "" : "s"}`,
+      };
+    }
+    if (person === other && unseenOtherActivity.length > 0) {
+      return {
+        badge: "✨",
+        color: "#FFE27A",
+        label: `See ${otherName}'s ${unseenOtherActivity.length} new chore completion${unseenOtherActivity.length === 1 ? "" : "s"}`,
+      };
+    }
+    return null;
+  };
+  const openNoticeForPerson = (person) => {
+    if (person === me && unreadKudos.length > 0) return openKudosView;
+    if (person === other && unseenOtherActivity.length > 0) return openActivitySummary;
+    return null;
+  };
   const suggestedBubbleIds = new Set(
     bubbleSuggestionsVisible && suggestion ? suggestion.chores.map((chore) => chore.id) : []
   );
@@ -1296,6 +1367,7 @@ export default function ChoreBubbles() {
         @keyframes sparkleUp { 0%{opacity:1; transform:translateY(0) scale(0.7)} 100%{opacity:0; transform:translateY(-26px) scale(1.25)} }
         @keyframes barSwell { 0%{transform:scaleY(1)} 25%{transform:scaleY(1.9)} 55%{transform:scaleY(1.25)} 100%{transform:scaleY(1)} }
         @keyframes greenArrival { 0%{transform:scale(0.82); box-shadow:0 0 0 #5FE0BB00} 55%{transform:scale(1.08); box-shadow:0 0 14px #5FE0BB66} 100%{transform:scale(1); box-shadow:0 0 0 #5FE0BB00} }
+        @keyframes noticeGlow { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.16)} }
         @keyframes wilt { 0%,100%{transform:rotate(-6deg) translateY(1px)} 50%{transform:rotate(-10deg) translateY(3px)} }
         @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
         * { box-sizing: border-box; margin: 0; }
@@ -1378,8 +1450,8 @@ export default function ChoreBubbles() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           {view.chores.length > 0 && (
             <div style={{ display: "flex", gap: 16, alignItems: "flex-end", padding: "2px 20px 8px" }}>
-              <CompactBar name={settings.nameA} points={pointsA} goal={goal} greenStart={settings.greenStart} paused={aPaused} />
-              <CompactBar name={settings.nameB} points={pointsB} goal={goal} greenStart={settings.greenStart} paused={bPaused} />
+              <CompactBar name={settings.nameA} points={pointsA} goal={goal} greenStart={settings.greenStart} paused={aPaused} notice={noticeForPerson("a")} onOpen={openNoticeForPerson("a")} />
+              <CompactBar name={settings.nameB} points={pointsB} goal={goal} greenStart={settings.greenStart} paused={bPaused} notice={noticeForPerson("b")} onOpen={openNoticeForPerson("b")} />
             </div>
           )}
           {simDays > 0 && (
@@ -1392,7 +1464,7 @@ export default function ChoreBubbles() {
               🏖 Household paused. Bubbles are frozen until you resume.
             </div>
           )}
-          <BubbleField chores={view.chores} completions={view.completions} pauses={pauses} onTap={(ch) => { setTapWhenDays(0); setTapChore(ch); }} popId={popId} simDays={simDays} suggestedIds={suggestedBubbleIds} />
+          <BubbleField chores={view.chores} completions={view.completions} pauses={pauses} onTap={(ch) => { setTapWhenDays(0); setTapHistoryOpen(false); setTapChore(ch); }} popId={popId} simDays={simDays} suggestedIds={suggestedBubbleIds} />
           <div style={{ padding: "0 20px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ display: "flex", gap: 8 }}>
               <button
@@ -1445,9 +1517,9 @@ export default function ChoreBubbles() {
           </div>
 
           <div style={{ background: "#102733", border: "1px solid #1A3B49", borderRadius: 18, padding: "2px 16px", marginBottom: 12 }}>
-            <ProgressRow label={settings.nameA} points={pointsA} goal={goal} hue="#6FC3FF" paused={aPaused} zoned greenStart={settings.greenStart} />
+            <ProgressRow label={settings.nameA} points={pointsA} goal={goal} hue="#6FC3FF" paused={aPaused} zoned greenStart={settings.greenStart} notice={noticeForPerson("a")} onOpen={openNoticeForPerson("a")} />
             <div style={{ height: 1, background: "#1A3B49" }} />
-            <ProgressRow label={settings.nameB} points={pointsB} goal={goal} hue="#FF9FC0" paused={bPaused} zoned greenStart={settings.greenStart} />
+            <ProgressRow label={settings.nameB} points={pointsB} goal={goal} hue="#FF9FC0" paused={bPaused} zoned greenStart={settings.greenStart} notice={noticeForPerson("b")} onOpen={openNoticeForPerson("b")} />
             <div style={{ color: "#7FA3AC", fontSize: 11.5, textAlign: "center", padding: "2px 0 12px" }}>
               Full scale: {goal} points · Green starts at {greenMin}
             </div>
@@ -1494,6 +1566,35 @@ export default function ChoreBubbles() {
             Chores you do together count full for both of you.<br />
             Vacation mode freezes your tally while you&apos;re away.
           </div>
+
+          {recentKudos.length > 0 && (
+            <section style={{ marginBottom: 20 }}>
+              <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Kudos 👏</div>
+              <div style={{ background: "#102733", border: "1px solid #1A3B49", borderRadius: 14, padding: "0 12px" }}>
+                {recentKudos.map((item) => {
+                  const names = item.choreNames.slice(0, 2);
+                  const remaining = item.choreNames.length - names.length;
+                  const direction = item.direction === "given"
+                    ? `To ${personName(item.to)}`
+                    : `From ${personName(item.from)}`;
+                  return (
+                    <div key={item.id} style={{ padding: "10px 0", borderBottom: "1px solid #1A3542" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, color: "#B9D2D8", fontSize: 11.5 }}>
+                        <strong style={{ color: item.direction === "received" ? "#C7A5F7" : "#5FE0BB" }}>{direction}</strong>
+                        <span>{timeAgo(item.at)}</span>
+                      </div>
+                      {item.message && <div style={{ color: "#E8F3F4", fontSize: 13.5, lineHeight: 1.4, marginTop: 4, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.message}</div>}
+                      {names.length > 0 && (
+                        <div style={{ color: "#7FA3AC", fontSize: 11.5, marginTop: 3 }}>
+                          For {names.join(", ")}{remaining > 0 ? ` + ${remaining} more` : ""}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Recent activity</div>
           {recent.length === 0 && <div style={{ color: "#7FA3AC", fontSize: 14 }}>Nothing logged yet. Tap a bubble to get started.</div>}
@@ -1680,6 +1781,94 @@ export default function ChoreBubbles() {
         </Modal>
       )}
 
+      {/* New activity by the other person */}
+      {activitySummary && (
+        <Modal onClose={() => finishActivitySummary(false)}>
+          <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 20, fontWeight: 700, marginBottom: 14 }}>
+            {personName(activitySummary.person)} did {activitySummary.completions.length} thing{activitySummary.completions.length === 1 ? "" : "s"}
+          </div>
+          <div style={{ background: "#102733", border: "1px solid #1A3B49", borderRadius: 14, padding: "0 12px", marginBottom: 16 }}>
+            {activitySummary.completions.slice(0, 12).map((entry) => (
+              <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #1A3542" }}>
+                <span aria-hidden="true" style={{ color: "#5FE0BB" }}>✓</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600 }}>{entry.choreName || "Chore"}</span>
+                <span style={{ color: "#5FE0BB", fontSize: 12.5, fontWeight: 800 }}>{Number(entry.difficulty) || 0} pts</span>
+              </div>
+            ))}
+            {activitySummary.completions.length > 12 && (
+              <div style={{ padding: "10px 0", color: "#7FA3AC", fontSize: 12 }}>+ {activitySummary.completions.length - 12} earlier</div>
+            )}
+          </div>
+          <button onClick={() => finishActivitySummary(true)} style={{ ...btnStyle("#C7A5F7"), width: "100%", marginBottom: 9 }}>
+            👏 Give kudos
+          </button>
+          <button onClick={() => finishActivitySummary(false)} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", border: "1px solid #1E4152" }}>
+            Close
+          </button>
+        </Modal>
+      )}
+
+      {/* Optional kudos message */}
+      {kudosComposer && (
+        <Modal onClose={() => { setKudosComposer(null); setKudosMessage(""); }}>
+          <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 20, fontWeight: 700 }}>Kudos for {personName(kudosComposer.person)} 👏</div>
+          <div style={{ color: "#7FA3AC", fontSize: 12.5, lineHeight: 1.4, margin: "4px 0 14px" }}>
+            For {kudosComposer.completions.length} recent chore{kudosComposer.completions.length === 1 ? "" : "s"}. A message is optional.
+          </div>
+          <textarea
+            rows={4}
+            value={kudosMessage}
+            placeholder="Add a thank-you message (optional)"
+            onChange={(event) => setKudosMessage(event.target.value)}
+            style={{ width: "100%", resize: "vertical", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 12, padding: "12px 14px", color: "#E8F3F4", fontSize: 14, lineHeight: 1.45, fontFamily: "inherit", outline: "none" }}
+          />
+          {kudosMessage.length > 150 && (
+            <div style={{ color: kudosMessage.length > 200 ? "#FF8B7B" : "#7FA3AC", fontSize: 11.5, textAlign: "right", marginTop: 4 }}>
+              {kudosMessage.length} / 200{kudosMessage.length > 200 ? " · extra text will be trimmed" : ""}
+            </div>
+          )}
+          <button onClick={sendKudos} style={{ ...btnStyle("#C7A5F7"), width: "100%", marginTop: 14 }}>
+            Send kudos
+          </button>
+        </Modal>
+      )}
+
+      {/* Kudos addressed to this device's person */}
+      {kudosViewOpen && (
+        <Modal onClose={() => setKudosViewOpen(false)}>
+          <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 20, fontWeight: 700, marginBottom: 14 }}>Kudos for you 👏</div>
+          {receivedKudos.length === 0 ? (
+            <div style={{ color: "#7FA3AC", fontSize: 13 }}>No kudos yet.</div>
+          ) : (
+            <div style={{ background: "#102733", border: "1px solid #1A3B49", borderRadius: 14, padding: "0 12px", maxHeight: 380, overflowY: "auto" }}>
+              {receivedKudos.map((item) => {
+                const names = choreNamesForKudos(item, view.completions, view.chores);
+                const shown = names.slice(0, 2);
+                return (
+                  <div key={item.id} style={{ padding: "11px 0", borderBottom: "1px solid #1A3542" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, color: "#B9D2D8", fontSize: 11.5 }}>
+                      <strong style={{ color: "#C7A5F7" }}>{personName(item.from)}</strong>
+                      <span>{timeAgo(item.at)}</span>
+                    </div>
+                    <div style={{ color: "#E8F3F4", fontSize: 13.5, lineHeight: 1.4, marginTop: 4, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                      {item.message || "👏 Kudos"}
+                    </div>
+                    {shown.length > 0 && (
+                      <div style={{ color: "#7FA3AC", fontSize: 11.5, marginTop: 3 }}>
+                        For {shown.join(", ")}{names.length > 2 ? ` + ${names.length - 2} more` : ""}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <button onClick={() => setKudosViewOpen(false)} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", marginTop: 14, border: "1px solid #1E4152" }}>
+            Close
+          </button>
+        </Modal>
+      )}
+
       {/* Who are you */}
       {askWho && (
         <Modal onClose={() => me && setAskWho(false)}>
@@ -1706,11 +1895,16 @@ export default function ChoreBubbles() {
 
       {/* Complete chore */}
       {tapChore && (
-        <Modal onClose={() => { setTapChore(null); setTapWhenDays(0); }}>
+        <Modal onClose={() => { setTapChore(null); setTapWhenDays(0); setTapHistoryOpen(false); }}>
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 19, fontWeight: 700 }}>{tapChore.name}</div>
           <div style={{ fontSize: 13, color: "#7FA3AC", margin: "4px 0 16px" }}>
             Last done {timeAgo(lastDone(tapChore, view.completions))} · worth {tapChore.difficulty} pts
           </div>
+          {tapChore.details && (
+            <div style={{ margin: "0 0 16px", padding: "11px 13px", background: "#102733", border: "1px solid #1A3B49", borderRadius: 12, color: "#E8F3F4", fontSize: 13.5, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+              {tapChore.details}
+            </div>
+          )}
           <div style={{ fontSize: 12, color: "#7FA3AC", marginBottom: 7 }}>When was it done?</div>
           <div style={{ display: "flex", gap: 7, marginBottom: 18, flexWrap: "wrap" }}>
             {[{ d: 0, l: "Just now" }, { d: 1, l: "Yesterday" }, { d: 2, l: "2 days ago" }, { d: 3, l: "3 days ago" }].map((o) => (
@@ -1734,6 +1928,41 @@ export default function ChoreBubbles() {
               We did it together
             </button>
           </div>
+          <button
+            type="button"
+            aria-expanded={tapHistoryOpen}
+            onClick={() => setTapHistoryOpen((open) => !open)}
+            style={{ width: "100%", marginTop: 12, padding: "10px 2px", border: "none", borderTop: "1px solid #244653", background: "transparent", color: "#B9D2D8", font: "inherit", fontSize: 13.5, fontWeight: 700, textAlign: "left", cursor: "pointer" }}
+          >
+            {tapHistoryOpen ? "▾" : "▸"} Status &amp; history
+          </button>
+          {tapHistoryOpen && (
+            <section style={{ paddingTop: 4 }}>
+              <div style={{ display: "grid", gap: 7, marginBottom: 14, padding: "11px 13px", background: "#102733", border: "1px solid #1A3B49", borderRadius: 12, fontSize: 12.5 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "#7FA3AC" }}>Timing</span><strong>{choreTimingLabel(tapChore, view.completions, pauses)}</strong></div>
+                {tapChoreHistory[0] && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "#7FA3AC" }}>Last done</span><strong>✓ {timeAgo(tapChoreHistory[0].ts)}</strong></div>}
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "#7FA3AC" }}>Value</span><strong>worth {tapChore.difficulty} pts</strong></div>
+                {tapChoreHistory[0] && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "#7FA3AC" }}>Who</span><strong>{completionActor(tapChoreHistory[0], settings)}</strong></div>}
+              </div>
+              <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 14.5, fontWeight: 700, marginBottom: 6 }}>Recent history</div>
+              {tapChoreHistory.length === 0 ? (
+                <div style={{ color: "#7FA3AC", fontSize: 12.5 }}>No completions logged yet.</div>
+              ) : (
+                <div style={{ background: "#102733", border: "1px solid #1A3B49", borderRadius: 12, padding: "0 12px" }}>
+                  {tapChoreHistory.slice(0, 8).map((entry) => (
+                    <div key={entry.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "9px 0", borderBottom: "1px solid #1A3542" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ color: "#E8F3F4", fontSize: 12.5, fontWeight: 700 }}>{completionActor(entry, settings)}</div>
+                        <div style={{ color: "#7FA3AC", fontSize: 11.5 }}>{timeAgo(entry.ts)}</div>
+                      </div>
+                      <strong style={{ color: entry.by === "service" || entry.by === "reset" ? "#9FB6BC" : "#5FE0BB", fontSize: 12 }}>{completionImpact(entry)}</strong>
+                    </div>
+                  ))}
+                  {tapChoreHistory.length > 8 && <div style={{ padding: "9px 0", color: "#7FA3AC", fontSize: 12 }}>+ {tapChoreHistory.length - 8} earlier</div>}
+                </div>
+              )}
+            </section>
+          )}
         </Modal>
       )}
 

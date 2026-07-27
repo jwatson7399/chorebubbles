@@ -1,5 +1,10 @@
+export function normalizeDetails(value) {
+  return typeof value === "string" ? value.trim().slice(0, 500) : "";
+}
+
 function stepFromChore(chore, fallbackName) {
   const rawFrequency = Number(chore?.freqDays);
+  const details = normalizeDetails(chore?.details);
   return {
     name: String(chore?.name || fallbackName).trim() || fallbackName,
     importance: Math.max(1, Math.min(5, Number(chore?.importance) || 3)),
@@ -7,6 +12,7 @@ function stepFromChore(chore, fallbackName) {
     freqDays: Number.isFinite(rawFrequency) && rawFrequency > 0
       ? Math.max(1, Math.min(60, rawFrequency))
       : 7,
+    ...(details ? { details } : {}),
   };
 }
 
@@ -21,11 +27,16 @@ export function materializeTwoStepChore(chore, active = chore?.twoStep?.active |
     stepFromChore(chore.twoStep.steps[0], "Step 1"),
     stepFromChore(chore.twoStep.steps[1], "Step 2"),
   ];
-  return {
+  const projected = {
     ...chore,
     ...steps[index],
     twoStep: { enabled: true, active: index, steps },
   };
+  // Steps omit `details` when empty to keep stored objects clean, so the spread
+  // above cannot clear it — without this, switching to a step with no details
+  // would leave the other step's text showing on it.
+  if (!steps[index].details) delete projected.details;
+  return projected;
 }
 
 export function enableTwoStepChore(chore) {
