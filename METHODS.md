@@ -158,6 +158,79 @@ The completion records which step it credited via `twoStepIndex`, and the succes
 
 ---
 
+## 10. Chore details and give-kudos
+
+**Objective.** Two additions authored on the parallel Codex track from written specs
+(`BUBBLE_DETAILS_SPEC.md`, `CHOREBUBBLES_KUDOS_SPEC.md`) and integrated per the §7 method
+— read the full diff, check it against the codebase's own rules, prove it green.
+
+### 10a. A `details` field: the shared definition of done
+
+The tap sheet named a chore and said nothing about what doing it meant. In a two-person
+household that is a real gap: "dishes" can reasonably mean the dishes, or the dishes and
+the sink, and two people can hold different definitions indefinitely without ever
+discovering the disagreement.
+
+`details` is an optional free-text field on each chore, normalized by `normalizeDetails`
+(trimmed, truncated at 500, non-string coerced to `""` so an object can never render as
+`[object Object]`). It renders **above the primary action and is always visible when
+set** — deliberately not behind a toggle, because it answers "what am I committing to",
+which you need *before* tapping Mark done, not after.
+
+**The trap, and why the fix sits where it does.** `ChoreFields` renders once per step for
+two-step chores, so each step can carry its own details — genuinely desirable, since
+loading and unloading the dishwasher have different definitions of done. But
+`stepFromChore` deliberately **omits** an empty `details` key to keep stored objects
+clean, while `materializeTwoStepChore` projects a step with `{...chore, ...step}`. The
+omitted key therefore could not clear a previous value: switching to a step with no
+details left the *other* step's text showing on it. Found in review, reproduced, and
+fixed in the **projection** rather than the step shape, so stored steps stay clean and
+the leak is closed. Three regression tests pin it.
+
+### 10b. Kudos
+
+When one person logs completions the other has not seen, **their bar glows and becomes
+tappable**; the summary lists what they did and offers kudos with an optional message.
+The receiving side is symmetric: your own bar glows when kudos are waiting, with a
+different badge (👏 purple) from new activity (✨ gold), because the same treatment for
+two meanings would be ambiguous.
+
+Kudos ride the existing op-replay pipeline as `kudos:add`, idempotent on `id` exactly
+like `completion:add` — non-idempotent ops duplicate on retry, and every operation is
+replayed against the newest server state. The array is capped at 200 in `normalizeData`,
+since the shared document is a single JSON blob read and written whole.
+
+Three decisions worth preserving:
+
+- **Seen-markers are per device and never advance on app open.** They live in
+  `localStorage`, not the shared document — "what I have seen" is not shared state, and
+  syncing it would let one phone mark the other's notifications read. Advancing on open
+  would clear the glow before it could be noticed, making the whole feature silently
+  inert; it advances only when the summary is opened, to the newest timestamp **in the
+  batch shown**, so completions arriving mid-view are not skipped.
+- **Seeing is enough.** Reading the summary and closing without sending clears the glow.
+  The glow means "new activity", not "you owe praise" — kudos must stay a gesture rather
+  than an obligation the app nags you into.
+- **Joint completions are excluded, because they cannot be attributed.** A joint
+  completion stores `by: "joint"` with no record of who tapped it. "What Kristine did"
+  therefore cannot include joint chores — the information does not exist. Adding a
+  `loggedBy` field would fix it but changes the completion shape in a live synced app,
+  and deserves its own decision rather than riding along with this one.
+
+**Rollout.** `normalizeData` spreads `...source` before its known-key overrides, so a
+phone on the older bundle preserves a `kudos` array it does not understand rather than
+stripping it — verified before relying on it, because the failure mode would have been
+silent data loss between two people. The feature is otherwise inert until both phones
+update, since neither writes kudos until it can.
+
+**Results.** 51 tests pass and the build is clean. The model layer was verified
+empirically — joint/service/reset exclusion, idempotent replay, the 200 cap, marker
+timing — but the kudos **interface** could not be exercised locally, because the shared
+app is behind Supabase sign-in. That gap was stated at review time rather than papered
+over.
+
+---
+
 ## Engineering practice notes
 
 - **Pure logic is extracted and unit-tested.** Scoring (`logModel.js`) and drag physics (`bubblePhysics.js`) live in standalone modules with vitest coverage (`npm test`); the React component consumes them. This keeps the testable rules independent of the UI.
