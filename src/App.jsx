@@ -21,7 +21,7 @@ import {
   setGoalNudgeDismissed,
   isSynced,
 } from "./storage.js";
-import { suggestEffortGoal, shouldShowGoalNudge } from "./effortGoal.js";
+import { suggestEffortGoal, goalPresetOptions, shouldShowGoalNudge } from "./effortGoal.js";
 import {
   bothStreak,
   effortZone,
@@ -823,6 +823,7 @@ export default function ChoreBubbles() {
   // Derived from the canonical chore list rather than `view`, so the time machine
   // cannot make the app suggest a goal for a household that does not exist.
   const goalSuggestion = useMemo(() => suggestEffortGoal(data?.chores), [data?.chores]);
+  const goalPresets = useMemo(() => goalPresetOptions(data?.chores), [data?.chores]);
 
   const logStats = useMemo(() => {
     if (!view) return null;
@@ -1036,12 +1037,15 @@ export default function ChoreBubbles() {
 
   // Both values go in one patch: the green stepper is capped by the current scale,
   // so applying them separately would silently clamp green to the old scale.
-  const applyGoalSuggestion = useCallback(() => {
-    if (!goalSuggestion) return;
-    commit({ type: "settings:patch", patch: { weeklyGoal: goalSuggestion.scale, greenStart: goalSuggestion.green } });
-    setGoalNudgeDismissed(goalSuggestion.green);
-    setGoalNudgeDismissedState(goalSuggestion.green);
-    showToast(`Effort goal set to ${goalSuggestion.green} green of ${goalSuggestion.scale}.`);
+  const applyGoalSuggestion = useCallback((option) => {
+    if (!option) return;
+    commit({ type: "settings:patch", patch: { weeklyGoal: option.scale, greenStart: option.green } });
+    // Dismiss against the default suggestion, which is what the nudge measures drift
+    // from — otherwise picking Spotless would leave the nudge showing forever.
+    const marker = goalSuggestion ? goalSuggestion.green : option.green;
+    setGoalNudgeDismissed(marker);
+    setGoalNudgeDismissedState(marker);
+    showToast(`${option.label}: green at ${option.green} of ${option.scale}.`);
   }, [goalSuggestion, commit, showToast]);
 
   const requestMagicLink = async () => {
@@ -1768,24 +1772,57 @@ export default function ChoreBubbles() {
           </div>
 
           <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Effort goal</div>
-          {goalSuggestion ? (
+          {goalSuggestion && goalPresets ? (
             <>
               <div style={{ marginTop: 8, padding: "14px 16px", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 14 }}>
-                <div style={{ fontSize: 13, color: "#B9D2D8", lineHeight: 1.5 }}>
-                  Your {goalSuggestion.choreCount} chores need about <strong style={{ color: "#5FE0BB" }}>{Math.round(goalSuggestion.demandPerWeek)} pts a week</strong> to stay current — roughly {Math.round(goalSuggestion.fairShare)} each.
+                <div style={{ fontSize: 13, color: "#B9D2D8", lineHeight: 1.55 }}>
+                  Your {goalSuggestion.choreCount} chores need about <strong style={{ color: "#5FE0BB" }}>{Math.round(goalSuggestion.demandPerWeek)} pts a week</strong> to stay current — roughly <strong style={{ color: "#5FE0BB" }}>{Math.round(goalSuggestion.fairShare)} each</strong>.
                 </div>
-                <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, margin: "10px 0 2px" }}>
-                  Suggested: green at {goalSuggestion.green}, full bar {goalSuggestion.scale}
+                <div style={{ fontSize: 12.5, color: "#7FA3AC", lineHeight: 1.55, marginTop: 8 }}>
+                  Goals below are lower than that on purpose. Chore frequencies describe an ideal — hitting every one of them every time means cleaning nonstop. Green at {goalSuggestion.green} is about {Math.round(goalSuggestion.actualCoverage * 100)}% of a fair share: enough to keep the home healthy without living in it.
                 </div>
-                {(settings.weeklyGoal !== goalSuggestion.scale || greenMin !== goalSuggestion.green) ? (
-                  <button onClick={applyGoalSuggestion} style={{ ...btnStyle("#5FE0BB"), width: "100%", marginTop: 12, fontSize: 14 }}>
-                    Use these numbers
-                  </button>
-                ) : (
-                  <div style={{ fontSize: 12, color: "#7FA3AC", marginTop: 8 }}>Your goal matches this. Nothing to change.</div>
-                )}
               </div>
-              <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "10px 0 2px" }}>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+                {goalPresets.map((option) => {
+                  const active = settings.weeklyGoal === option.scale && greenMin === option.green;
+                  return (
+                    <button
+                      key={option.id}
+                      onClick={() => applyGoalSuggestion(option)}
+                      style={{
+                        textAlign: "left",
+                        background: active ? "#123B3A" : "#0F2530",
+                        border: `1px solid ${active ? "#5FE0BB" : "#1E4152"}`,
+                        borderRadius: 14,
+                        padding: "12px 14px",
+                        cursor: "pointer",
+                        WebkitTapHighlightColor: "transparent",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+                        <span style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 15.5, fontWeight: 700, color: active ? "#5FE0BB" : "#E6F2F5" }}>
+                          {option.label}{active ? " ✓" : ""}
+                        </span>
+                        <span style={{ fontSize: 12.5, color: active ? "#5FE0BB" : "#9FD4EA", whiteSpace: "nowrap" }}>
+                          green {option.green} · bar {option.scale}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#7FA3AC", marginTop: 3 }}>
+                        {option.blurb} <span style={{ color: "#5F8494" }}>~{Math.round(option.actualCoverage * 100)}% of a fair share</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {goalPresets[0].floorLimited && (
+                <div style={{ fontSize: 11.5, color: "#7FA3AC", lineHeight: 1.5, marginTop: 8 }}>
+                  Nothing gentler is offered: green always stays above the {Math.round(goalPresets[0].paddingCeiling)} pts a week your quick, low-importance chores could earn on their own, so it can never be reached without doing something that matters.
+                </div>
+              )}
+
+              <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "14px 0 2px" }}>
                 Fine-tune
               </div>
             </>

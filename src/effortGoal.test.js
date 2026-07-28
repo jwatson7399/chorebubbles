@@ -4,6 +4,8 @@ import {
   householdDemandPerWeek,
   paddingCeilingPerWeek,
   suggestEffortGoal,
+  goalPresetOptions,
+  GOAL_PRESETS,
   isGoalStale,
   shouldShowGoalNudge,
 } from "./effortGoal.js";
@@ -138,6 +140,75 @@ describe("suggestEffortGoal", () => {
     expect(s.green).toBe(19);
     expect(s.scale).toBe(29);
     expect(s.green).toBeGreaterThan(s.paddingCeiling);
+  });
+});
+
+describe("goalPresetOptions", () => {
+  const liveList = () => [
+    twoStep({ importance: 5, difficulty: 3, freqDays: 3 }, { importance: 5, difficulty: 3, freqDays: 3 }),
+    chore({ importance: 4, difficulty: 1, freqDays: 2 }),
+    chore({ importance: 3, difficulty: 2, freqDays: 4 }),
+    chore({ importance: 2, difficulty: 2, freqDays: 7 }),
+    chore({ importance: 1, difficulty: 1, freqDays: 10 }),
+    chore({ importance: 1, difficulty: 3, freqDays: 14 }),
+    chore({ importance: 4, difficulty: 2, freqDays: 2 }),
+    chore({ importance: 2, difficulty: 4, freqDays: 7 }),
+    chore({ importance: 2, difficulty: 1, freqDays: 7 }),
+    chore({ importance: 5, difficulty: 5, freqDays: 7 }),
+    chore({ importance: 2, difficulty: 4, freqDays: 7 }),
+    chore({ importance: 4, difficulty: 3, freqDays: 14 }),
+    chore({ importance: 3, difficulty: 1, freqDays: 6 }),
+    chore({ importance: 1, difficulty: 2, freqDays: 14 }),
+    chore({ importance: 3, difficulty: 4, freqDays: 7 }),
+    chore({ importance: 1, difficulty: 5, freqDays: 30 }),
+    chore({ importance: 4, difficulty: 3, freqDays: 14 }),
+    chore({ importance: 4, difficulty: 2, freqDays: 7 }),
+    chore({ importance: 3, difficulty: 2, freqDays: 4 }),
+    chore({ importance: 3, difficulty: 1, freqDays: 2 }),
+    chore({ importance: 3, difficulty: 1, freqDays: 7 }),
+    chore({ importance: 4, difficulty: 5, freqDays: 7 }),
+    chore({ importance: 2, difficulty: 1, freqDays: 3 }),
+    chore({ importance: 1, difficulty: 1, freqDays: 3 }),
+    chore({ importance: 2, difficulty: 1, freqDays: 1 }),
+  ];
+
+  it("returns null when there is nothing to price", () => {
+    expect(goalPresetOptions([])).toBeNull();
+  });
+
+  it("prices every preset and keeps them in ascending order", () => {
+    const options = goalPresetOptions(liveList());
+    expect(options).toHaveLength(GOAL_PRESETS.length);
+    for (let i = 1; i < options.length; i += 1) {
+      expect(options[i].green).toBeGreaterThan(options[i - 1].green);
+    }
+  });
+
+  it("keeps every preset above the padding ceiling, including the gentlest", () => {
+    const options = goalPresetOptions(liveList());
+    options.forEach((option) => expect(option.green).toBeGreaterThan(option.paddingCeiling));
+  });
+
+  it("keeps green below the full bar for every preset, so the bar never pegs at green", () => {
+    const options = goalPresetOptions(liveList());
+    options.forEach((option) => expect(option.green).toBeLessThan(option.scale));
+  });
+
+  it("reports the coverage actually delivered, not the coverage asked for", () => {
+    // The gentlest preset is lifted by the padding floor on this list, so the
+    // coverage it delivers is higher than its own constant.
+    const balanced = goalPresetOptions(liveList())[0];
+    expect(balanced.floorLimited).toBe(true);
+    expect(balanced.actualCoverage).toBeGreaterThan(GOAL_PRESETS[0].coverage);
+    expect(Math.round(balanced.actualCoverage * 100)).toBe(50);
+  });
+
+  it("leaves the default suggestion unchanged at the gentlest preset", () => {
+    const chores = liveList();
+    const base = suggestEffortGoal(chores);
+    const balanced = goalPresetOptions(chores)[0];
+    expect([base.green, base.scale]).toEqual([balanced.green, balanced.scale]);
+    expect([base.green, base.scale]).toEqual([19, 29]);
   });
 });
 

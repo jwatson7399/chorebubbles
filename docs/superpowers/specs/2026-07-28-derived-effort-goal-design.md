@@ -41,11 +41,12 @@ choreDemandPerDay(chore)
 fairShare      = 7 * sum(choreDemandPerDay) / 2
 paddingCeiling = sum(effort * 7 / freqDays)  for importance <= 2 AND effort <= 2
 
-green = round( max( 0.47 * fairShare,  1.15 * paddingCeiling ) )
-scale = round( max( 0.75 * fairShare,  green / 0.8 ) )
+green = round( max( coverage * fairShare,  1.15 * paddingCeiling ) )
+scale = round( max( 0.75 * fairShare,  green / 0.65 ) )
 ```
 
-Constants: `GREEN_COVERAGE 0.47`, `SCALE_COVERAGE 0.75`, `PADDING_MARGIN 1.15`.
+Constants: `GREEN_COVERAGE 0.47` (default coverage), `SCALE_COVERAGE 0.75`,
+`PADDING_MARGIN 1.15`, `GREEN_SHARE_OF_SCALE 0.65`. Preset coverages: 0.47 / 0.62 / 0.80.
 
 **Two-step chores** show one step at a time and completing it advances to the other, so
 the active step's own numbers understate demand. Demand is the summed cycle.
@@ -71,9 +72,28 @@ On the live list: `fairShare 38.1`, `paddingCeiling 16.4`, `green 19`, `scale 29
 
 The suggestion is the focal point, above the steppers:
 
-> Your 25 chores need about **76 pts a week** to stay current — roughly 38 each.
-> **Suggested: green at 19, full bar 29**
-> `[ Use these numbers ]`
+> Your 25 chores need about **76 pts a week** to stay current — roughly **38 each**.
+> Goals below are lower than that on purpose. Chore frequencies describe an ideal —
+> hitting every one of them every time means cleaning nonstop. Green at 19 is about
+> **50% of a fair share**: enough to keep the home healthy without living in it.
+
+Then three home-style presets, priced against the same chore list, selectable in one tap:
+
+| Preset | Green | Bar | Share covered |
+|---|---:|---:|---:|
+| Balanced — a healthy home without cleaning nonstop | 19 | 29 | ~50% |
+| Tidy — most things current, most of the time | 24 | 36 | ~63% |
+| Spotless — everything current, always | 30 | 40 | ~79% |
+
+The quoted percentage is the coverage **delivered** (`actualCoverage`), not the constant
+requested — Balanced asks for 47% but the padding floor lifts it to 50%.
+
+No gentler preset is offered. This list's padding ceiling (16.4) is 43% of the fair share,
+so any coverage below ~50% collapses onto the floor. The card states this explicitly
+rather than hiding it: green must stay above what trivial chores alone could earn.
+
+Applying a preset dismisses the nudge against the *default* suggestion, not the chosen
+preset, so picking Spotless does not leave the nudge showing permanently.
 
 Both values commit in a **single** `settings:patch`. The green stepper is capped by the
 current scale (`App.jsx`), so applying them separately would silently clamp green to the
@@ -128,5 +148,9 @@ rework. This feature computes and proposes two numbers.
 - empty and null lists return `null`
 - drift detection at both edges and with no suggestion
 - dismissal suppresses, and a materially moved suggestion returns
+- presets are priced, strictly ascending, and each keeps `green > paddingCeiling`
+- every preset keeps `green < scale`, so the bar never pegs exactly at green
+- `actualCoverage` reports delivered coverage, above the requested constant when floored
+- the default suggestion still equals the gentlest preset
 - **regression: for the live 25-chore list, `green > paddingCeiling`, and the suggestion
   is exactly 19/29** — the padding exploit encoded as a test

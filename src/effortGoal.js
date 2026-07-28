@@ -9,20 +9,46 @@ import { isTwoStepChore } from "./twoStepChore.js";
 // re-grounded whenever the list changes. Nothing here mutates state: the suggestion
 // is a pure function of chores, which also makes it identical on both phones.
 
-// Green is a little under half of one person's fair share — a realistic pace rather
-// than a full accounting of the work. The full bar is three quarters of the share, so
-// green lands around 62% of the bar and there is real headroom left to climb.
+// Green is a fraction of one person's fair share, not the whole of it. Chore
+// frequencies describe an ideal, and a household that hits every one of them every
+// time is cleaning constantly; a goal set at the full share would sit permanently
+// out of reach and read as failure rather than encouragement.
 export const GREEN_COVERAGE = 0.47;
 export const SCALE_COVERAGE = 0.75;
+
+// Keeps green near 62-65% of the bar so reaching it never nearly pegs the bar.
+const GREEN_SHARE_OF_SCALE = 0.65;
+
+// Households differ in how much upkeep they actually want. Coverage is the share of
+// one person's fair share that green represents. The padding floor still applies to
+// every preset, so a relaxed setting can never drop green low enough for trivial
+// chores alone to reach it.
+export const GOAL_PRESETS = [
+  {
+    id: "balanced",
+    label: "Balanced",
+    blurb: "A healthy home without cleaning nonstop.",
+    coverage: GREEN_COVERAGE,
+  },
+  {
+    id: "tidy",
+    label: "Tidy",
+    blurb: "Most things current, most of the time.",
+    coverage: 0.62,
+  },
+  {
+    id: "spotless",
+    label: "Spotless",
+    blurb: "Everything current, always. A lot of upkeep.",
+    coverage: 0.8,
+  },
+];
 
 // Green must also clear the "padding ceiling" — every trivial chore in the house at
 // full frequency. Without this floor the coverage fractions alone could drift below
 // it as trivial chores are added, and the bar would once again be reachable without
 // doing anything that matters.
 export const PADDING_MARGIN = 1.15;
-
-// Used only to keep the scale above green when the padding floor is what sets green.
-const GREEN_RATIO_OF_SCALE = 0.8;
 
 // Matches the Settings steppers so a suggestion is always applicable as-is.
 const SCALE_MIN = 4;
@@ -85,7 +111,7 @@ export function paddingCeilingPerWeek(chores) {
   );
 }
 
-export function suggestEffortGoal(chores) {
+export function suggestEffortGoal(chores, coverage = GREEN_COVERAGE) {
   const list = Array.isArray(chores) ? chores : [];
   if (!list.length) return null;
 
@@ -95,13 +121,36 @@ export function suggestEffortGoal(chores) {
   const fairShare = demandPerWeek / 2;
   const paddingCeiling = paddingCeilingPerWeek(list);
 
-  const rawGreen = Math.max(GREEN_COVERAGE * fairShare, PADDING_MARGIN * paddingCeiling);
-  const rawScale = Math.max(SCALE_COVERAGE * fairShare, rawGreen / GREEN_RATIO_OF_SCALE);
+  const wanted = coverage * fairShare;
+  const floor = PADDING_MARGIN * paddingCeiling;
+  const rawGreen = Math.max(wanted, floor);
+  const rawScale = Math.max(SCALE_COVERAGE * fairShare, rawGreen / GREEN_SHARE_OF_SCALE);
 
   const scale = clamp(Math.round(rawScale), SCALE_MIN, SCALE_MAX);
   const green = clamp(Math.round(rawGreen), GREEN_FLOOR, scale);
 
-  return { choreCount: list.length, demandPerWeek, fairShare, paddingCeiling, scale, green };
+  return {
+    choreCount: list.length,
+    demandPerWeek,
+    fairShare,
+    paddingCeiling,
+    scale,
+    green,
+    // What the user actually ends up covering, which is what the copy should quote —
+    // the padding floor can lift green above the coverage that was asked for.
+    actualCoverage: fairShare > 0 ? green / fairShare : 0,
+    floorLimited: floor > wanted,
+  };
+}
+
+// Each preset priced against the same chore list, so the UI can show what every home
+// style would actually cost per week.
+export function goalPresetOptions(chores) {
+  const options = GOAL_PRESETS.map((preset) => {
+    const suggestion = suggestEffortGoal(chores, preset.coverage);
+    return suggestion ? { ...preset, ...suggestion } : null;
+  });
+  return options.every(Boolean) ? options : null;
 }
 
 export function isGoalStale(currentGreen, suggestion) {

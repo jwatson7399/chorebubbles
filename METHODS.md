@@ -309,6 +309,31 @@ throughput (~17/person/week). Silently setting an unreachable goal would replace
 wrong number with another, so the app proposes and the household decides. The two
 existing steppers stay, demoted under a quieter "Fine-tune" caption.
 
+**Why the suggestion is lower than the fair share, and home-style presets.** The card
+first states the fair share (38 each) and then suggests a green of 19, which reads as a
+contradiction unless the reasoning is given. Chore frequencies describe an *ideal*: a
+household that hits every frequency every time is cleaning constantly. Green is therefore
+a deliberate fraction of the share, and the card says so and quotes the percentage.
+
+Because households genuinely differ in how much upkeep they want, three presets are
+priced against the same chore list:
+
+| Preset | Green | Bar | Share covered |
+|---|---:|---:|---:|
+| Balanced — a healthy home without cleaning nonstop | 19 | 29 | ~50% |
+| Tidy — most things current, most of the time | 24 | 36 | ~63% |
+| Spotless — everything current, always | 30 | 40 | ~79% |
+
+Two details are load-bearing. The quoted percentage is the coverage **delivered**, not
+the constant asked for: Balanced requests 47% but the padding floor lifts it to 50%, and
+quoting the request would be a lie. And **no gentler preset is offered**. On this list the
+padding ceiling (16.4) is 43% of the fair share, so any coverage below ~50% collapses onto
+the floor — the "we're fine with more mess" option is structurally unavailable, and the
+card explains why rather than hiding it. That is the guarantee working, not a gap.
+
+Applying a preset dismisses the nudge against the *default* suggestion rather than the
+chosen preset, so picking Spotless does not leave the nudge showing forever.
+
 Both values commit in a single `settings:patch`: the green stepper is capped by the
 current scale, so applying them separately would clamp green to the old scale.
 
