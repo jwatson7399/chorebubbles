@@ -121,69 +121,100 @@ export function bothStreak(completions, goal, pauses, at) {
   return streak;
 }
 
-function combinationsOfUpToThree(chores) {
-  const combinations = [];
-  for (let i = 0; i < chores.length; i++) {
-    combinations.push([chores[i]]);
-    for (let j = i + 1; j < chores.length; j++) {
-      combinations.push([chores[i], chores[j]]);
-      for (let k = j + 1; k < chores.length; k++) {
-        combinations.push([chores[i], chores[j], chores[k]]);
-      }
-    }
+// Suggestions used to be combinations of at most three chores, which quietly forced
+// heavy work: with a ten-point gap, three slots demand an average effort of 3.3, and
+// none of the 389 valid combinations on the real chore list were all-light. The
+// suggester was not choosing badly — every option available to it was daunting.
+//
+// Plans are now built from an "anchor plus fillers" shape with a per-intensity item
+// cap, so one bigger job can carry a handful of quick tidying jobs.
+
+const ANCHOR_MIN_EFFORT = 3;
+const PREFERRED_URGENCY = 0.75;
+
+export const SUGGESTION_INTENSITIES = [
+  { id: "light", label: "Light", blurb: "Quick tidying only", maxItems: 5, maxAnchors: 0 },
+  { id: "mixed", label: "Mixed", blurb: "One bigger job plus quick wins", maxItems: 6, maxAnchors: 1 },
+  { id: "heavy", label: "Heavy", blurb: "A few big jobs", maxItems: 3, maxAnchors: 3 },
+];
+
+export const DEFAULT_INTENSITY = "mixed";
+
+const intensitySpec = (id) =>
+  SUGGESTION_INTENSITIES.find((option) => option.id === id) ||
+  SUGGESTION_INTENSITIES.find((option) => option.id === DEFAULT_INTENSITY);
+
+const effortOf = (chore) => Number(chore.difficulty);
+
+// Urgency first, because a suggestion should point at work that genuinely needs doing;
+// effort descending second, so a plan closes the gap without becoming a long list.
+const byUrgencyThenEffort = (urgencyById) => (a, b) =>
+  (Number(urgencyById[b.id]) || 0) - (Number(urgencyById[a.id]) || 0) ||
+  effortOf(b) - effortOf(a) ||
+  String(a.id).localeCompare(String(b.id));
+
+// Shuffle rotates rather than randomises: the order stays urgency-biased and identical
+// for a given seed, so both phones show the same idea and Undo-style replays are stable.
+const rotate = (items, seed) => {
+  if (items.length < 2) return items;
+  const offset = Math.abs(Math.floor(Number(seed) || 0)) % items.length;
+  return [...items.slice(offset), ...items.slice(0, offset)];
+};
+
+function fillPlan(anchors, fillers, gap, spec) {
+  const picked = [];
+  let total = 0;
+  for (const chore of anchors) {
+    if (picked.length >= spec.maxAnchors || picked.length >= spec.maxItems || total >= gap) break;
+    picked.push(chore);
+    total += effortOf(chore);
   }
-  return combinations;
+  for (const chore of fillers) {
+    if (picked.length >= spec.maxItems || total >= gap) break;
+    picked.push(chore);
+    total += effortOf(chore);
+  }
+  return { picked, total };
 }
 
-function rankedCombinations(chores, gap, urgencyById) {
-  return combinationsOfUpToThree(chores)
-    .map((items) => {
-      const total = items.reduce((sum, chore) => sum + Number(chore.difficulty), 0);
-      const urgency = items.reduce((sum, chore) => sum + Number(urgencyById[chore.id] || 0), 0);
-      const category = total === gap ? 0 : total > gap ? 1 : 2;
-      const distance = Math.abs(total - gap);
-      return { chores: items, total, urgency, category, distance };
-    })
-    .sort((a, b) =>
-      a.category - b.category ||
-      a.distance - b.distance ||
-      b.urgency - a.urgency ||
-      a.chores.length - b.chores.length ||
-      a.chores.map((item) => item.id).join(":").localeCompare(b.chores.map((item) => item.id).join(":"))
-    );
-}
-
-export function suggestCombo(chores, gap, urgencyById = {}, seed = 0) {
+export function suggestPlan(chores, gap, urgencyById = {}, intensity = DEFAULT_INTENSITY, seed = 0) {
   const target = Math.max(0, Number(gap) || 0);
   if (target === 0) return null;
 
-  const eligible = (chores || []).filter((chore) => {
-    const effort = Number(chore.difficulty);
-    return chore && chore.id && Number.isFinite(effort) && effort > 0;
-  });
+  const spec = intensitySpec(intensity);
+  const eligible = (chores || []).filter(
+    (chore) => chore && chore.id && Number.isFinite(effortOf(chore)) && effortOf(chore) > 0
+  );
   if (eligible.length === 0) return null;
 
-  const preferred = eligible.filter((chore) => Number(urgencyById[chore.id] || 0) >= 0.75);
-  let ranked = preferred.length ? rankedCombinations(preferred, target, urgencyById) : [];
+  const order = byUrgencyThenEffort(urgencyById);
+  const build = (pool) => {
+    const anchors = rotate(pool.filter((c) => effortOf(c) >= ANCHOR_MIN_EFFORT).sort(order), seed);
+    const fillers = rotate(pool.filter((c) => effortOf(c) < ANCHOR_MIN_EFFORT).sort(order), seed);
+    // Anchors are taken first up to maxAnchors, then fillers use whatever slots remain.
+    // Heavy therefore degrades gracefully: a household with only one big chore still
+    // gets that chore plus two quick ones rather than an empty plan.
+    return fillPlan(anchors, fillers, target, spec);
+  };
 
-  // If due-soon chores cannot reach the gap, widen the idea pool.
-  if (!ranked.some((option) => option.total >= target)) {
-    ranked = rankedCombinations(eligible, target, urgencyById);
+  const preferred = eligible.filter((c) => (Number(urgencyById[c.id]) || 0) >= PREFERRED_URGENCY);
+  let plan = preferred.length ? build(preferred) : { picked: [], total: 0 };
+
+  // Widen to every chore only when the due-soon pool cannot reach the gap. A light plan
+  // is allowed to fall short rather than dragging in work that is not due yet.
+  if (plan.total < target) {
+    const widened = build(eligible);
+    if (widened.total > plan.total) plan = widened;
   }
-  if (ranked.length === 0) return null;
-
-  const best = ranked[0];
-  const alternatives = ranked.filter(
-    (option) => option.category === best.category && option.distance === best.distance
-  );
-  const index = Math.abs(Math.floor(Number(seed) || 0)) % Math.min(alternatives.length, 6);
-  const selected = alternatives[index] || best;
+  if (plan.picked.length === 0) return null;
 
   return {
-    chores: selected.chores,
-    total: selected.total,
-    exact: selected.total === target,
-    reachesGap: selected.total >= target,
+    chores: plan.picked,
+    total: plan.total,
+    intensity: spec.id,
+    exact: plan.total === target,
+    reachesGap: plan.total >= target,
+    shortfall: Math.max(0, target - plan.total),
   };
 }
 

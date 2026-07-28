@@ -6,7 +6,8 @@ import {
   effortZone,
   effortZoneThresholds,
   pointsInActivePeriod,
-  suggestCombo,
+  suggestPlan,
+  SUGGESTION_INTENSITIES,
   weeklyPoints,
 } from "./logModel.js";
 
@@ -86,73 +87,90 @@ describe("rolling effort points", () => {
 });
 
 describe("gap suggestions", () => {
+  // Anchors are effort >= 3, fillers effort <= 2.
   const chores = [
-    { id: "a", name: "A", difficulty: 3 },
-    { id: "b", name: "B", difficulty: 2 },
-    { id: "c", name: "C", difficulty: 1 },
-    { id: "d", name: "D", difficulty: 4 },
+    { id: "big1", name: "Litter", difficulty: 5 },
+    { id: "big2", name: "Mop", difficulty: 3 },
+    { id: "big3", name: "Fridge", difficulty: 4 },
+    { id: "sm1", name: "Counters", difficulty: 1 },
+    { id: "sm2", name: "Coffee table", difficulty: 1 },
+    { id: "sm3", name: "Dish mat", difficulty: 1 },
+    { id: "sm4", name: "Shoes", difficulty: 1 },
+    { id: "sm5", name: "Plants", difficulty: 1 },
+    { id: "sm6", name: "Trash", difficulty: 2 },
   ];
+  const allUrgent = Object.fromEntries(chores.map((c) => [c.id, 1]));
+  const anchors = (result) => result.chores.filter((c) => c.difficulty >= 3).length;
 
-  it("prefers an exact combination of unique chores", () => {
-    const result = suggestCombo(chores, 5, { a: 1, b: 1, c: 0.2, d: 0.2 }, 0);
-    expect(result.total).toBe(5);
-    expect(new Set(result.chores.map((chore) => chore.id)).size).toBe(result.chores.length);
+  it("returns nothing when there is no gap to close", () => {
+    expect(suggestPlan(chores, 0, allUrgent, "mixed")).toBeNull();
+    expect(suggestPlan([], 10, allUrgent, "mixed")).toBeNull();
+  });
+
+  it("pairs one bigger job with quick wins on Mixed", () => {
+    const result = suggestPlan(chores, 10, allUrgent, "mixed");
+    expect(anchors(result)).toBe(1);
+    expect(result.chores.length).toBeGreaterThan(3);
+    expect(result.chores.length).toBeLessThanOrEqual(6);
+    expect(result.reachesGap).toBe(true);
+  });
+
+  it("never includes a bigger job on Light", () => {
+    const result = suggestPlan(chores, 10, allUrgent, "light");
+    expect(anchors(result)).toBe(0);
+    expect(result.chores.every((c) => c.difficulty <= 2)).toBe(true);
+    expect(result.chores.length).toBeLessThanOrEqual(5);
+  });
+
+  it("lets a Light plan fall short rather than padding the list", () => {
+    // Fillers total 7 across six chores, but Light may only use five of them.
+    const result = suggestPlan(chores, 10, allUrgent, "light");
+    expect(result.reachesGap).toBe(false);
+    expect(result.shortfall).toBe(10 - result.total);
+    expect(result.total).toBeLessThan(10);
+  });
+
+  it("keeps Heavy short and front-loads the big jobs", () => {
+    const result = suggestPlan(chores, 10, allUrgent, "heavy");
     expect(result.chores.length).toBeLessThanOrEqual(3);
+    expect(anchors(result)).toBe(3);
+    expect(result.reachesGap).toBe(true);
   });
 
-  it("uses the smallest overshoot, then underfill when nothing can reach", () => {
-    expect(suggestCombo([{ id: "a", difficulty: 4 }], 3).total).toBe(4);
-    const underfill = suggestCombo(chores.slice(0, 2), 20);
-    expect(underfill.total).toBe(5);
-    expect(underfill.reachesGap).toBe(false);
+  it("gives Heavy quick chores when there are not enough big ones", () => {
+    const mostlySmall = [chores[0], ...chores.slice(3)];
+    const urgency = Object.fromEntries(mostlySmall.map((c) => [c.id, 1]));
+    const result = suggestPlan(mostlySmall, 7, urgency, "heavy");
+    expect(result.chores.length).toBeLessThanOrEqual(3);
+    expect(anchors(result)).toBe(1);
+    expect(result.chores.length).toBeGreaterThan(1);
   });
 
-  it("prioritizes urgent chores and supports stable alternate seeds", () => {
-    const urgency = { a: 1, b: 1, c: 1, d: 0 };
-    const first = suggestCombo(chores, 4, urgency, 0);
-    const again = suggestCombo(chores, 4, urgency, 0);
-    const alternate = suggestCombo(chores, 4, urgency, 1);
+  it("is stable for a seed and varies when shuffled", () => {
+    const first = suggestPlan(chores, 6, allUrgent, "mixed", 0);
+    const again = suggestPlan(chores, 6, allUrgent, "mixed", 0);
+    const shuffled = suggestPlan(chores, 6, allUrgent, "mixed", 1);
     expect(first).toEqual(again);
-    expect(first.chores.every((chore) => urgency[chore.id] >= 0.75)).toBe(true);
-    expect(alternate.total).toBe(first.total);
-  });
-});
-
-describe("effort zones", () => {
-  it("places the green threshold at the upper fifth of the full scale", () => {
-    expect(effortZoneThresholds(14)).toEqual({
-      fullScale: 14,
-      buildingMin: 6,
-      greenMin: 12,
-    });
+    expect(shuffled.chores.map((c) => c.id)).not.toEqual(first.chores.map((c) => c.id));
   });
 
-  it("uses inclusive whole-point boundaries", () => {
-    expect(effortZone(5, 14).key).toBe("starting");
-    expect(effortZone(6, 14).key).toBe("building");
-    expect(effortZone(11, 14).key).toBe("building");
-    expect(effortZone(12, 14).key).toBe("green");
+  it("prefers due-soon chores, widening only when they cannot reach the gap", () => {
+    const urgency = { ...Object.fromEntries(chores.map((c) => [c.id, 0])), big1: 1, sm1: 1, sm2: 1 };
+    const easy = suggestPlan(chores, 5, urgency, "mixed");
+    expect(easy.chores.every((c) => urgency[c.id] >= 0.75)).toBe(true);
+
+    // Nothing due-soon can reach 20, so the pool widens to everything.
+    const widened = suggestPlan(chores, 20, urgency, "mixed");
+    expect(widened.chores.some((c) => urgency[c.id] < 0.75)).toBe(true);
   });
 
-  it("keeps over-scale effort green and normalizes invalid inputs", () => {
-    expect(effortZone(22, 14).key).toBe("green");
-    expect(effortZone(-3, 0).key).toBe("starting");
-    expect(effortZoneThresholds("8")).toEqual({
-      fullScale: 8,
-      buildingMin: 4,
-      greenMin: 7,
-    });
+  it("falls back to a known intensity when given an unknown one", () => {
+    const bogus = suggestPlan(chores, 10, allUrgent, "nonsense");
+    const mixed = suggestPlan(chores, 10, allUrgent, "mixed");
+    expect(bogus).toEqual(mixed);
   });
 
-  it("honors an explicit green start, clamped to the full scale", () => {
-    expect(effortZoneThresholds(14, 9)).toEqual({
-      fullScale: 14,
-      buildingMin: 5,
-      greenMin: 9,
-    });
-    expect(effortZone(9, 14, 9).key).toBe("green");
-    expect(effortZone(8, 14, 9).key).toBe("building");
-    // A green start above the scale is capped at the scale.
-    expect(effortZoneThresholds(14, 20).greenMin).toBe(14);
+  it("exposes exactly the three intensities the UI offers", () => {
+    expect(SUGGESTION_INTENSITIES.map((option) => option.id)).toEqual(["light", "mixed", "heavy"]);
   });
 });

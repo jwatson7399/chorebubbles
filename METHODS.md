@@ -359,6 +359,63 @@ honestly scored.
 
 ---
 
+## 13. Suggestion intensity: anchor-plus-fillers instead of three big jobs
+
+**The complaint.** Ten points from green, the app suggested vacuuming, mopping *and*
+doing the litter — a lot for an average Tuesday evening. The wanted shape was one
+bigger job plus a few quick tidying jobs.
+
+**The cause was arithmetic, not ranking.** `combinationsOfUpToThree` capped every
+suggestion at three chores. Measured against the real chore list at a gap of 10:
+
+| | |
+|---|---:|
+| Combinations of ≤3 chores reaching the gap | 389 |
+| ...that are all-light (every chore ≤ 2 effort) | **0** |
+| Maximum reachable with three light chores | **6** |
+| Mean effort per chore across valid combinations | 3.62 / 5 |
+
+Three slots for ten points demands an average effort of 3.3, so the suggester had to
+reach for the heaviest work available. It was picking the least-bad option from a set
+containing nothing reasonable. The ranking made it marginally worse by preferring
+*fewer* chores as a tiebreak. Worth recording because the instinct was to tune the
+scoring, and no amount of reweighting can surface an option that does not exist.
+
+**The model.** `suggestPlan` replaces `suggestCombo`. An *anchor* is a chore of effort
+≥ 3, a *filler* is effort ≤ 2. Each intensity caps both totals:
+
+| Intensity | Max items | Max anchors |
+|---|---:|---:|
+| Light | 5 | 0 |
+| Mixed (default) | 6 | 1 |
+| Heavy | 3 | 3 |
+
+Anchors are taken first, then fillers use the remaining slots, both ordered by urgency
+and then descending effort. Heavy therefore degrades gracefully — a household with only
+one big chore gets that chore plus two quick ones rather than an empty plan.
+
+**Shuffle rotates rather than randomises.** The candidate order stays urgency-biased and
+is identical for a given seed, so the idea is deterministic across both phones.
+
+**Light is allowed to fall short.** Reaching the gap used to be a hard preference in the
+ranking, which is precisely what forced heavy work. A Light plan now reports
+*"Gets you to 8 of 10 — 2 short, but it all counts"* rather than padding itself into a
+ten-item checklist. Partial progress is the honest answer when someone has said they are
+only up for quick tidying.
+
+**Intensity is deliberately not persisted.** "What am I up for right now" is a
+moment-to-moment judgement, not a preference, so it lives in React state, resets when the
+app reopens, and is never synced to the other phone.
+
+**Results.** 80 tests pass and the build is clean. The three `suggestCombo` tests were
+rewritten rather than kept: they pinned the exact-gap preference and the fewest-items
+tiebreak, which are the behaviours being removed. Verified in a browser against the real
+chore list at a gap of 10 — Light gave five quick chores for 8 of 10, Mixed gave
+`Fridge clean-out (4)` plus four quick jobs for 11, Heavy gave three big jobs for 13, and
+Shuffle varied the plan within a fixed intensity.
+
+---
+
 ## Engineering practice notes
 
 - **Pure logic is extracted and unit-tested.** Scoring (`logModel.js`) and drag physics (`bubblePhysics.js`) live in standalone modules with vitest coverage (`npm test`); the React component consumes them. This keeps the testable rules independent of the UI.

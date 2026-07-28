@@ -28,7 +28,9 @@ import {
   effortZoneThresholds,
   pausedDuration,
   pointsInActivePeriod,
-  suggestCombo,
+  suggestPlan,
+  SUGGESTION_INTENSITIES,
+  DEFAULT_INTENSITY,
   weeklyPoints,
 } from "./logModel.js";
 import {
@@ -801,6 +803,9 @@ export default function ChoreBubbles() {
   const [simOpen, setSimOpen] = useState(false);
   const [introOpen, setIntroOpen] = useState(false);
   const [suggestionSeed, setSuggestionSeed] = useState(0);
+  // "What am I up for right now" is a moment-to-moment judgement, so it deliberately
+  // resets on reopen and is never synced to the other phone.
+  const [intensity, setIntensity] = useState(DEFAULT_INTENSITY);
   const [bubbleSuggestionsVisible, setBubbleSuggestionsVisible] = useState(false);
   const [healthPulse, setHealthPulse] = useState(0);
   const prevHealthRef = useRef(null);
@@ -848,7 +853,7 @@ export default function ChoreBubbles() {
     const myPaused = me === "b" ? bPaused : aPaused;
     const gap = Math.max(0, greenMin - myPoints);
     const suggestion = me && !myPaused && gap > 0
-      ? suggestCombo(view.chores, gap, urgencyById, suggestionSeed)
+      ? suggestPlan(view.chores, gap, urgencyById, intensity, suggestionSeed)
       : null;
 
     return {
@@ -870,7 +875,7 @@ export default function ChoreBubbles() {
       gap,
       suggestion,
     };
-  }, [view, me, suggestionSeed, simDays]);
+  }, [view, me, suggestionSeed, intensity, simDays]);
 
   const showToast = useCallback((msg, undoFn = null) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -1593,6 +1598,33 @@ export default function ChoreBubbles() {
                   <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, color: "#FFC65E" }}>
                     You&apos;re {gap} point{gap === 1 ? "" : "s"} from green 🎯
                   </div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                    {SUGGESTION_INTENSITIES.map((option) => {
+                      const active = option.id === intensity;
+                      return (
+                        <button
+                          key={option.id}
+                          onClick={() => setIntensity(option.id)}
+                          aria-label={`${option.label} — ${option.blurb}`}
+                          style={{
+                            flex: 1,
+                            background: active ? "#FFC65E" : "transparent",
+                            color: active ? "#3B2E0C" : "#B9D2D8",
+                            border: `1px solid ${active ? "#FFC65E" : "#4A6470"}`,
+                            borderRadius: 999,
+                            padding: "6px 4px",
+                            fontFamily: "'Baloo 2', sans-serif",
+                            fontSize: 12.5,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            WebkitTapHighlightColor: "transparent",
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                   {suggestion ? (
                     <>
                       <div style={{ color: "#E8F3F4", fontSize: 14, lineHeight: 1.5, marginTop: 8 }}>
@@ -1601,7 +1633,7 @@ export default function ChoreBubbles() {
                       <div style={{ color: "#B9D2D8", fontSize: 12, marginTop: 3 }}>
                         {suggestion.reachesGap
                           ? `= ${suggestion.total} points`
-                          : `This gets you ${suggestion.total} points closer`}
+                          : `Gets you to ${suggestion.total} of ${gap} — ${suggestion.shortfall} short, but it all counts`}
                       </div>
                       <button
                         onClick={shuffleSuggestions}
