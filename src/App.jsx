@@ -788,6 +788,7 @@ export default function ChoreBubbles() {
   const [serviceOpen, setServiceOpen] = useState(false);
   const [serviceSel, setServiceSel] = useState({});
   const [editChore, setEditChore] = useState(null);
+  const [exportText, setExportText] = useState(null);
   const [toast, setToast] = useState(null);
   const [popId, setPopId] = useState(null);
   const [syncState, setSyncState] = useState("");
@@ -867,6 +868,21 @@ export default function ChoreBubbles() {
     setToast({ msg, undoFn });
     toastTimer.current = setTimeout(() => setToast(null), 6000);
   }, []);
+
+  // Copies the canonical shared blob (not the time-machine view) so an export is
+  // always the real saved data. Clipboard access can be refused in an installed
+  // PWA, so a failure falls back to a selectable textarea rather than silently
+  // doing nothing.
+  const exportData = useCallback(async () => {
+    if (!data) return;
+    const text = JSON.stringify(data, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(`Copied ${(data.chores || []).length} chores and the full history.`);
+    } catch {
+      setExportText(text);
+    }
+  }, [data, showToast]);
 
   useEffect(() => {
     if (!isSynced()) return;
@@ -1725,7 +1741,13 @@ export default function ChoreBubbles() {
           <button onClick={() => setAskWho(true)} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", marginTop: 12, border: "1px solid #1E4152", fontSize: 13 }}>
             This phone belongs to: {me === "a" ? settings.nameA : me === "b" ? settings.nameB : "?"} (change)
           </button>
-          <button onClick={() => window.confirm("Clear the shared activity log? This cannot be undone.") && resetActivity()} style={{ ...btnStyle("#0F2530", "#FF8B7B"), width: "100%", marginTop: 8, border: "1px solid #1E4152", fontSize: 13 }}>
+          <button onClick={exportData} style={{ ...btnStyle("#0F2530", "#9FD4EA"), width: "100%", marginTop: 8, border: "1px solid #1E4152", fontSize: 13 }}>
+            📋 Copy all data (backup)
+          </button>
+          <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "6px 0 0" }}>
+            Copies every chore, completion, pause and kudo as JSON — a backup you can paste somewhere safe.
+          </div>
+          <button onClick={() => window.confirm("Clear the shared activity log? This cannot be undone.") && resetActivity()} style={{ ...btnStyle("#0F2530", "#FF8B7B"), width: "100%", marginTop: 12, border: "1px solid #1E4152", fontSize: 13 }}>
             Clear shared activity log
           </button>
           {isSynced() && (
@@ -1760,6 +1782,25 @@ export default function ChoreBubbles() {
           <span style={{ fontSize: 14 }}>{toast.msg}</span>
           {toast.undoFn && <button onClick={toast.undoFn} style={{ background: "none", border: "none", color: "#5FE0BB", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Undo</button>}
         </div>
+      )}
+
+      {/* Export fallback when the clipboard is unavailable */}
+      {exportText && (
+        <Modal onClose={() => setExportText(null)}>
+          <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Copy your data 📋</div>
+          <div style={{ fontSize: 13, color: "#7FA3AC", marginBottom: 12 }}>
+            This phone would not let the app reach the clipboard. Tap the box, select all, and copy.
+          </div>
+          <textarea
+            readOnly
+            value={exportText}
+            onFocus={(e) => e.target.select()}
+            style={{ width: "100%", height: 260, boxSizing: "border-box", background: "#0F2530", color: "#B9D2D8", border: "1px solid #1E4152", borderRadius: 14, padding: 12, fontSize: 12, fontFamily: "ui-monospace, monospace" }}
+          />
+          <button onClick={() => setExportText(null)} style={{ ...btnStyle("#5FE0BB"), width: "100%", marginTop: 12 }}>
+            Done
+          </button>
+        </Modal>
       )}
 
       {/* Simulation panel */}

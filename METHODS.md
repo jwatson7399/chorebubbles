@@ -231,7 +231,43 @@ over.
 
 ---
 
+## 11. Data export
+
+**Why.** The app had no way to get its own data out. With `SUPABASE_URL` configured,
+`storage.js` skips the local cache entirely (`if (!supa)` at lines 59 and 75), so the
+household's chores, completions, pauses and kudos exist in exactly one place: the
+`value` jsonb column of a single Supabase row. There was no backup path, and no way to
+inspect or reason about the real chore list without opening the Supabase dashboard.
+
+That gap surfaced during a calibration discussion: the effort-bar constants
+(`weeklyGoal` 14, green at 12) can only be judged against what the chore list actually
+demands, and the seeded `STARTERS` list is not what this household uses.
+
+**What it does.** A "Copy all data (backup)" button in Chores → Household settings
+serializes the shared blob to pretty-printed JSON and copies it to the clipboard.
+
+- **It exports `data`, not `view`.** The time machine renders from a simulated copy;
+  an export that followed the visible state would silently produce fictional data.
+- **Clipboard failure is handled, not swallowed.** An installed iOS PWA can refuse
+  `navigator.clipboard.writeText`. A rejection opens a modal with a selectable
+  textarea rather than appearing to do nothing.
+- **No envelope.** The exported shape is exactly the stored `value`, so it stays
+  directly comparable to the database row and usable for a future restore.
+
+**Verification.** The interface gap noted in §10 — that the shared app is behind
+Supabase sign-in and so cannot be exercised locally — was solved rather than restated.
+Temporarily blanking `SUPABASE_URL`/`SUPABASE_ANON_KEY` puts the app in local-only
+mode, which reaches every screen without credentials; `src/config.js` is then restored
+and `git diff` confirms it. Under that setup the real UI was driven in a browser: the
+button produced 2106 characters of valid JSON with all six top-level keys and 10
+chores, the toast read "Copied 10 chores and the full history", and a forced
+`writeText` rejection opened the fallback modal with identical content. 51 tests pass
+and the build is clean.
+
+---
+
 ## Engineering practice notes
 
 - **Pure logic is extracted and unit-tested.** Scoring (`logModel.js`) and drag physics (`bubblePhysics.js`) live in standalone modules with vitest coverage (`npm test`); the React component consumes them. This keeps the testable rules independent of the UI.
 - **Local iteration before commit.** UI-sensitive changes are previewed on the Vite dev server (`npm run dev`, http://localhost:5173) and iterated with hot reload before committing — verified against `npm test` and `npm run build`, then pushed to `main` (which auto-deploys via GitHub Pages).
+- **Auth-gated screens are reachable locally.** Blanking `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `src/config.js` drops the app into local-only mode, so screens behind household sign-in can be driven end-to-end on the dev server. Restore `src/config.js` afterwards and confirm with `git diff` — the file holds live credentials and must never be committed blank.
