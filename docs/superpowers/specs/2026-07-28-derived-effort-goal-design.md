@@ -75,7 +75,7 @@ The suggestion is the focal point, above the steppers:
 > Your 25 chores need about **76 pts a week** to stay current — roughly **38 each**.
 > Goals below are lower than that on purpose. Chore frequencies describe an ideal —
 > hitting every one of them every time means cleaning nonstop. Green at 19 is about
-> **50% of a fair share**: enough to keep the home healthy without living in it.
+> **50% of a fair share** — keeping up, without keeping at it.
 
 Then three home-style presets, priced against the same chore list, selectable in one tap:
 

@@ -1779,7 +1779,7 @@ export default function ChoreBubbles() {
                   Your {goalSuggestion.choreCount} chores need about <strong style={{ color: "#5FE0BB" }}>{Math.round(goalSuggestion.demandPerWeek)} pts a week</strong> to stay current — roughly <strong style={{ color: "#5FE0BB" }}>{Math.round(goalSuggestion.fairShare)} each</strong>.
                 </div>
                 <div style={{ fontSize: 12.5, color: "#7FA3AC", lineHeight: 1.55, marginTop: 8 }}>
-                  Goals below are lower than that on purpose. Chore frequencies describe an ideal — hitting every one of them every time means cleaning nonstop. Green at {goalSuggestion.green} is about {Math.round(goalSuggestion.actualCoverage * 100)}% of a fair share: enough to keep the home healthy without living in it.
+                  Goals below are lower than that on purpose. Chore frequencies describe an ideal — hitting every one of them every time means cleaning nonstop. Green at {goalSuggestion.green} is about {Math.round(goalSuggestion.actualCoverage * 100)}% of a fair share — keeping up, without keeping at it.
                 </div>
               </div>
 
