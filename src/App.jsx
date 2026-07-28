@@ -516,6 +516,41 @@ const btnStyle = (bg, color = "#0C1B26") => ({
   WebkitTapHighlightColor: "transparent",
 });
 
+// Rendered on both Bubbles and The Log against the same state, so picking an intensity
+// on one screen is already reflected on the other.
+function IntensityPicker({ value, onChange, compact = false }) {
+  return (
+    <div style={{ display: "flex", gap: 6 }}>
+      {SUGGESTION_INTENSITIES.map((option) => {
+        const active = option.id === value;
+        return (
+          <button
+            key={option.id}
+            onClick={() => onChange(option.id)}
+            aria-pressed={active}
+            aria-label={`${option.label} — ${option.blurb}`}
+            style={{
+              flex: 1,
+              background: active ? "#FFC65E" : "transparent",
+              color: active ? "#3B2E0C" : "#B9D2D8",
+              border: `1px solid ${active ? "#FFC65E" : "#4A6470"}`,
+              borderRadius: 999,
+              padding: compact ? "4px 4px" : "6px 4px",
+              fontFamily: "'Baloo 2', sans-serif",
+              fontSize: compact ? 11.5 : 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              WebkitTapHighlightColor: "transparent",
+            }}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Modal({ children, onClose }) {
   return (
     <div
@@ -1527,6 +1562,7 @@ export default function ChoreBubbles() {
           )}
           <BubbleField chores={view.chores} completions={view.completions} pauses={pauses} onTap={(ch) => { setTapWhenDays(0); setTapHistoryOpen(false); setTapChore(ch); }} popId={popId} simDays={simDays} suggestedIds={suggestedBubbleIds} />
           <div style={{ padding: "0 20px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
+            {canShuffleSuggestions && <IntensityPicker value={intensity} onChange={setIntensity} compact />}
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 disabled={!canShuffleSuggestions}
@@ -1598,32 +1634,8 @@ export default function ChoreBubbles() {
                   <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, color: "#FFC65E" }}>
                     You&apos;re {gap} point{gap === 1 ? "" : "s"} from green 🎯
                   </div>
-                  <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                    {SUGGESTION_INTENSITIES.map((option) => {
-                      const active = option.id === intensity;
-                      return (
-                        <button
-                          key={option.id}
-                          onClick={() => setIntensity(option.id)}
-                          aria-label={`${option.label} — ${option.blurb}`}
-                          style={{
-                            flex: 1,
-                            background: active ? "#FFC65E" : "transparent",
-                            color: active ? "#3B2E0C" : "#B9D2D8",
-                            border: `1px solid ${active ? "#FFC65E" : "#4A6470"}`,
-                            borderRadius: 999,
-                            padding: "6px 4px",
-                            fontFamily: "'Baloo 2', sans-serif",
-                            fontSize: 12.5,
-                            fontWeight: 600,
-                            cursor: "pointer",
-                            WebkitTapHighlightColor: "transparent",
-                          }}
-                        >
-                          {option.label}
-                        </button>
-                      );
-                    })}
+                  <div style={{ marginTop: 10 }}>
+                    <IntensityPicker value={intensity} onChange={setIntensity} />
                   </div>
                   {suggestion ? (
                     <>

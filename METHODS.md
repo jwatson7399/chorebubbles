@@ -403,6 +403,14 @@ ranking, which is precisely what forced heavy work. A Light plan now reports
 ten-item checklist. Partial progress is the honest answer when someone has said they are
 only up for quick tidying.
 
+**The control lives on both screens.** A shared `IntensityPicker` renders on Bubbles
+(compact, above Shuffle) and on The Log (above the plan), driven by the same state, so a
+pick on one screen is already applied on the other. Bubbles previously offered Shuffle
+without the control that makes rerolling useful, and the bubble highlights read from the
+same plan object — so the intensity was changing what Bubbles highlighted while only The
+Log could set it. On Bubbles the picker is hidden when there is no gap, since an
+intensity with nothing to suggest is dead chrome.
+
 **Intensity is deliberately not persisted.** "What am I up for right now" is a
 moment-to-moment judgement, not a preference, so it lives in React state, resets when the
 app reopens, and is never synced to the other phone.
