@@ -16,6 +16,8 @@ We evaluated two replacements:
 
 **Results.** Adopted the rolling tally. Implementation was extracted into `src/logModel.js` (`weeklyPoints`, `pointsInActivePeriod`, `effectiveAge`, `pausedDuration`, `bothStreak`) with vitest coverage. The `halfLifeDays` setting and `decayedPoints` were removed.
 
+**Correction (2026-07-28).** "The `halfLifeDays` setting was removed" is true of the code but not of the data. `normalizeData` spreads `...source` before its known-key overrides — deliberately, so an older bundle preserves fields it does not understand (see §10) — which means `halfLifeDays: 7` still sits in the live household blob and will persist indefinitely. Nothing reads it, so it is inert rather than harmful, but the reading-key set and the stored-key set are not the same thing and this document previously conflated them. Removing it needs a deliberate one-off migration, not a normalizer change.
+
 **Design rationale / notes.**
 - The window is **pause-aware** ("7 active days"): time spent under a household or solo pause is subtracted from a completion's age, so vacations don't silently age-out a person's tally. Overlapping pauses are merged so they count once.
 - **Joint chores award full effort to *both* people** (previously half each). This removes fractional displays ("+1.5 each" → "+3 each") and rewards doing chores together. The household "Together" total is defined as `pointsA + pointsB` against a goal of `2 × weeklyGoal`, so it stays internally consistent even though a joint chore counts on both bars.
@@ -53,6 +55,8 @@ Boundaries are inclusive whole points; over-scale effort stays green. Logic live
 - **Over-goal stays green (never a worse color).** Making "too much" a different color would disincentivize doing extra — the opposite of the goal.
 - **The green threshold is user-configurable** ("Green zone starts at" in settings). `effortZoneThresholds(goal, greenStart)` defaults to 80% of scale but honors an explicit value, clamped to the scale; the bar's visual bands and dividers derive from the actual thresholds so they always match. Lowering the effort scale re-clamps the green start so it can't strand above the scale.
 - Consequence surfaced to the user: because green = top fifth, the configured scale (14) is a *bar ceiling*, and the real target ("green") sits below it (12). Settings copy was reworded to "Effort scale (full bar)" to make this explicit.
+
+**Superseded in part by §12.** The zone *mechanics* above are unchanged, but two claims no longer describe how the numbers are chosen. The scale and green threshold are no longer hand-picked — §12 derives a suggestion from the chore list, because hand-picked values silently went stale when the chore list grew and left green at 18% of the household's actual needs. And "green = top fifth" is now only the fallback when no explicit `greenStart` is stored: the derived suggestion deliberately places green at roughly **62%** of the scale, not 80%, so that reaching green does not nearly peg the bar. That headroom is what keeps a full bar from reading as "we're finished."
 
 ---
 
