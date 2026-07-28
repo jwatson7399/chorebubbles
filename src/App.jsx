@@ -516,6 +516,73 @@ const btnStyle = (bg, color = "#0C1B26") => ({
   WebkitTapHighlightColor: "transparent",
 });
 
+// A shortcut to the goal presets that otherwise live at the bottom of the Chores tab.
+// Deliberately green (the green-zone colour) where the suggestion intensity picker is
+// amber: these pills change a shared household setting, those change only what this
+// phone is being offered tonight, and the two sit close together on The Log.
+function GoalPresetBar({ presets, suggestion, scale, green, onPick, expanded, onToggle }) {
+  return (
+    <div style={{ padding: "2px 0 12px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        {presets.map((option) => {
+          const active = scale === option.scale && green === option.green;
+          return (
+            <button
+              key={option.id}
+              onClick={() => onPick(option)}
+              aria-pressed={active}
+              aria-label={`${option.label} — green at ${option.green} of ${option.scale}`}
+              style={{
+                flex: 1,
+                background: active ? "#5FE0BB" : "transparent",
+                color: active ? "#08221C" : "#9FBCC4",
+                border: `1px solid ${active ? "#5FE0BB" : "#2C5563"}`,
+                borderRadius: 999,
+                padding: "4px 4px",
+                fontFamily: "'Baloo 2', sans-serif",
+                fontSize: 11.5,
+                fontWeight: 600,
+                cursor: "pointer",
+                WebkitTapHighlightColor: "transparent",
+              }}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+        <button
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Hide effort goal details" : "Show effort goal details"}
+          style={{ background: "none", border: "none", color: "#7FA3AC", fontSize: 13, cursor: "pointer", padding: 0, width: 22, WebkitTapHighlightColor: "transparent" }}
+        >
+          {expanded ? "⌃" : "⌄"}
+        </button>
+      </div>
+      {expanded ? (
+        <div style={{ marginTop: 8 }}>
+          {presets.map((option) => (
+            <div key={option.id} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11.5, color: "#9FBCC4", padding: "2px 0" }}>
+              <span>{option.label}</span>
+              <span>
+                green {option.green} · bar {option.scale}{" "}
+                <span style={{ color: "#5F8494" }}>~{Math.round(option.actualCoverage * 100)}%</span>
+              </span>
+            </div>
+          ))}
+          <div style={{ fontSize: 11.5, color: "#7FA3AC", lineHeight: 1.45, marginTop: 6 }}>
+            Your {suggestion.choreCount} chores need about {Math.round(suggestion.demandPerWeek)} pts a week to stay current — roughly {Math.round(suggestion.fairShare)} each.
+          </div>
+        </div>
+      ) : (
+        <div style={{ color: "#7FA3AC", fontSize: 11.5, textAlign: "center", marginTop: 6 }}>
+          Full scale: {scale} points · Green starts at {green}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Rendered on both Bubbles and The Log against the same state, so picking an intensity
 // on one screen is already reflected on the other.
 function IntensityPicker({ value, onChange, compact = false }) {
@@ -841,6 +908,7 @@ export default function ChoreBubbles() {
   // "What am I up for right now" is a moment-to-moment judgement, so it deliberately
   // resets on reopen and is never synced to the other phone.
   const [intensity, setIntensity] = useState(DEFAULT_INTENSITY);
+  const [goalDetailsOpen, setGoalDetailsOpen] = useState(false);
   const [bubbleSuggestionsVisible, setBubbleSuggestionsVisible] = useState(false);
   const [healthPulse, setHealthPulse] = useState(0);
   const prevHealthRef = useRef(null);
@@ -1617,9 +1685,21 @@ export default function ChoreBubbles() {
             <ProgressRow label={settings.nameA} points={pointsA} goal={goal} hue="#6FC3FF" paused={aPaused} zoned greenStart={settings.greenStart} notice={noticeForPerson("a")} onOpen={openNoticeForPerson("a")} />
             <div style={{ height: 1, background: "#1A3B49" }} />
             <ProgressRow label={settings.nameB} points={pointsB} goal={goal} hue="#FF9FC0" paused={bPaused} zoned greenStart={settings.greenStart} notice={noticeForPerson("b")} onOpen={openNoticeForPerson("b")} />
-            <div style={{ color: "#7FA3AC", fontSize: 11.5, textAlign: "center", padding: "2px 0 12px" }}>
-              Full scale: {goal} points · Green starts at {greenMin}
-            </div>
+            {goalPresets && goalSuggestion ? (
+              <GoalPresetBar
+                presets={goalPresets}
+                suggestion={goalSuggestion}
+                scale={goal}
+                green={greenMin}
+                onPick={applyGoalSuggestion}
+                expanded={goalDetailsOpen}
+                onToggle={() => setGoalDetailsOpen((open) => !open)}
+              />
+            ) : (
+              <div style={{ color: "#7FA3AC", fontSize: 11.5, textAlign: "center", padding: "2px 0 12px" }}>
+                Full scale: {goal} points · Green starts at {greenMin}
+              </div>
+            )}
           </div>
 
           {me && !myPaused && (

@@ -334,6 +334,23 @@ card explains why rather than hiding it. That is the guarantee working, not a ga
 Applying a preset dismisses the nudge against the *default* suggestion rather than the
 chosen preset, so picking Spotless does not leave the nudge showing forever.
 
+**A shortcut on The Log.** Living only at the bottom of the Chores tab made the presets
+feel buried, so `GoalPresetBar` replaces the static "Full scale / Green starts at" caption
+under the personal bars with the same three pills, collapsed by default and expandable to
+show each preset's numbers and the fair-share rationale.
+
+That puts **two pill rows within a few inches of each other** on one screen, doing
+different jobs: goal presets change a shared household setting, suggestion intensity
+changes only what this phone is offered tonight. They are separated by colour using
+meaning the app already carries — goal pills green (`#5FE0BB`, the green-zone colour),
+intensity pills amber (`#FFC65E`, the gap-closer panel's colour) — and sit in distinct
+cards. Tapping the wrong one would silently change something shared, so the distinction
+had to be visible rather than merely documented.
+
+When the stored numbers match no preset (because the steppers were nudged), no pill shows
+active and the caption reports the real values, rather than rounding the household into
+the nearest preset and implying a setting they did not choose.
+
 Both values commit in a single `settings:patch`: the green stepper is capped by the
 current scale, so applying them separately would clamp green to the old scale.
 
