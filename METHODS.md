@@ -266,6 +266,70 @@ and the build is clean.
 
 ---
 
+## 12. Deriving the effort goal from the chore list
+
+**The bug.** The effort scale and green threshold were hand-entered numbers, set against
+the ten-chore starter list and never revisited after the household replaced it with
+twenty-five real chores. Measured against the real list, the household needed **76.2
+effort pts/week**; one person's fair share was **38.1**; green sat at **7** — **18% of a
+fair share**. Reset Couch alone (effort 1, daily) yields exactly **7.0 pts/week**, so one
+trivial chore held the bar green indefinitely while covering 18% of the household's
+needs. Both people showed green (9/10 and 13/10) with two thirds of the list untouched.
+
+This is worth stating plainly because a long design brief had proposed replacing the
+rolling tally with a leaky-reservoir decay model to stop the bar plateauing. The plateau
+was not caused by decay. No decay curve repairs a threshold set five times too low, and
+checking that one number first made the larger rewrite unnecessary.
+
+**The model** (`effortGoal.js`) derives a suggestion from the chore list:
+
+```
+fairShare      = 7 * sum(effort / freqDays) / 2
+paddingCeiling = sum(effort * 7 / freqDays) for importance <= 2 AND effort <= 2
+green = round(max(0.47 * fairShare, 1.15 * paddingCeiling))
+scale = round(max(0.75 * fairShare, green / 0.8))
+```
+
+- **Two-step chores use the summed cycle**, `(e0+e1)/(f0+f1)`. Only one step is visible
+  at a time and completing it advances to the other, so the active step's own numbers
+  understate demand.
+- **The padding floor is the point.** Requiring green to clear the padding ceiling by 15%
+  turns "green cannot be reached by trivial work alone" into a structural guarantee that
+  survives future chore additions, rather than a property that happens to hold today.
+- **Green lands at ~62% of the scale, not the built-in 80%**, leaving 38% of the bar as
+  headroom. Reaching green no longer nearly pegs the bar — the plateau the brief worried
+  about, solved by geometry instead of by a decay rewrite.
+
+**Suggest, never auto-apply.** The honest fair share (38) is more than double observed
+throughput (~17/person/week). Silently setting an unreachable goal would replace one
+wrong number with another, so the app proposes and the household decides. The two
+existing steppers stay, demoted under a quieter "Fine-tune" caption.
+
+Both values commit in a single `settings:patch`: the green stepper is capped by the
+current scale, so applying them separately would clamp green to the old scale.
+
+**Discovery is the actual failure mode.** A suggestion sitting in Settings would not have
+helped — the numbers went stale precisely because nobody had reason to look. A drift
+nudge appears on the Bubbles screen when the live threshold falls outside 0.6–1.5x the
+suggestion. Per-chore prompting was rejected: fifteen chores were added in one sitting
+and each shifts the number only slightly; it is the accumulated drift that matters.
+
+**No new shared state.** Dismissal is local per device and stores the suggested green at
+dismissal rather than a flag, so dismissing sticks for that situation while a materially
+different one still gets through. The suggestion is a pure function of chores both phones
+already have, so it is identical across devices by construction — no migration, no sync
+ordering. It derives from canonical `data.chores` rather than the time-machine `view`, so
+simulated time cannot suggest a goal for a household that does not exist.
+
+**Results.** 71 tests pass and the build is clean, including a regression test asserting
+`green > paddingCeiling` and the exact 19/29 suggestion for the live chore list. Verified
+end-to-end in a browser against the household's real exported data: the nudge fired, the
+suggestion read 19/29, Apply queued one combined patch and persisted, and the bars moved
+from 9/10 and 13/10 (both green) to 9/30 and 13/30 (red and amber) — the same effort,
+honestly scored.
+
+---
+
 ## Engineering practice notes
 
 - **Pure logic is extracted and unit-tested.** Scoring (`logModel.js`) and drag physics (`bubblePhysics.js`) live in standalone modules with vitest coverage (`npm test`); the React component consumes them. This keeps the testable rules independent of the UI.

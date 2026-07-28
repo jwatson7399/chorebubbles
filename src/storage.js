@@ -123,6 +123,12 @@ const marker = (key) => {
   return Number.isFinite(value) && value > 0 ? value : 0;
 };
 
+// Records which suggested threshold was dismissed rather than a plain flag, so the
+// nudge stays gone for that situation but returns if the chore list moves on.
+const GOAL_NUDGE_KEY = "chorebubbles:goalNudge";
+export const getGoalNudgeDismissed = () => marker(GOAL_NUDGE_KEY);
+export const setGoalNudgeDismissed = (green) => localStorage.setItem(GOAL_NUDGE_KEY, String(Number(green) || 0));
+
 export const getSeenThrough = (me) => marker(`chorebubbles:seen:${me}`);
 export const setSeenThrough = (me, at) => localStorage.setItem(`chorebubbles:seen:${me}`, String(Number(at) || 0));
 export const getKudosSeenThrough = (me) => marker(`chorebubbles:kudosSeen:${me}`);

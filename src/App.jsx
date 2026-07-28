@@ -17,8 +17,11 @@ import {
   setSeenThrough as saveSeenThrough,
   getKudosSeenThrough,
   setKudosSeenThrough as saveKudosSeenThrough,
+  getGoalNudgeDismissed,
+  setGoalNudgeDismissed,
   isSynced,
 } from "./storage.js";
+import { suggestEffortGoal, shouldShowGoalNudge } from "./effortGoal.js";
 import {
   bothStreak,
   effortZone,
@@ -789,6 +792,7 @@ export default function ChoreBubbles() {
   const [serviceSel, setServiceSel] = useState({});
   const [editChore, setEditChore] = useState(null);
   const [exportText, setExportText] = useState(null);
+  const [goalNudgeDismissed, setGoalNudgeDismissedState] = useState(() => getGoalNudgeDismissed());
   const [toast, setToast] = useState(null);
   const [popId, setPopId] = useState(null);
   const [syncState, setSyncState] = useState("");
@@ -815,6 +819,10 @@ export default function ChoreBubbles() {
   // apply to a local sandbox copy that is never synced and is discarded on
   // returning to today. This keeps simulated play out of the shared household.
   const view = simDays > 0 && simData ? simData : data;
+
+  // Derived from the canonical chore list rather than `view`, so the time machine
+  // cannot make the app suggest a goal for a household that does not exist.
+  const goalSuggestion = useMemo(() => suggestEffortGoal(data?.chores), [data?.chores]);
 
   const logStats = useMemo(() => {
     if (!view) return null;
@@ -873,6 +881,14 @@ export default function ChoreBubbles() {
   // always the real saved data. Clipboard access can be refused in an installed
   // PWA, so a failure falls back to a selectable textarea rather than silently
   // doing nothing.
+  const showGoalNudge = !!data && shouldShowGoalNudge(data.settings?.greenStart, goalSuggestion, goalNudgeDismissed);
+
+  const dismissGoalNudge = useCallback(() => {
+    if (!goalSuggestion) return;
+    setGoalNudgeDismissed(goalSuggestion.green);
+    setGoalNudgeDismissedState(goalSuggestion.green);
+  }, [goalSuggestion]);
+
   const exportData = useCallback(async () => {
     if (!data) return;
     const text = JSON.stringify(data, null, 2);
@@ -1017,6 +1033,16 @@ export default function ChoreBubbles() {
     flushQueue();
     return true;
   }, [flushQueue]);
+
+  // Both values go in one patch: the green stepper is capped by the current scale,
+  // so applying them separately would silently clamp green to the old scale.
+  const applyGoalSuggestion = useCallback(() => {
+    if (!goalSuggestion) return;
+    commit({ type: "settings:patch", patch: { weeklyGoal: goalSuggestion.scale, greenStart: goalSuggestion.green } });
+    setGoalNudgeDismissed(goalSuggestion.green);
+    setGoalNudgeDismissedState(goalSuggestion.green);
+    showToast(`Effort goal set to ${goalSuggestion.green} green of ${goalSuggestion.scale}.`);
+  }, [goalSuggestion, commit, showToast]);
 
   const requestMagicLink = async () => {
     const email = authEmail.trim().toLowerCase();
@@ -1470,6 +1496,16 @@ export default function ChoreBubbles() {
               <CompactBar name={settings.nameB} points={pointsB} goal={goal} greenStart={settings.greenStart} paused={bPaused} notice={noticeForPerson("b")} onOpen={openNoticeForPerson("b")} />
             </div>
           )}
+          {simDays === 0 && showGoalNudge && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "4px 20px 0", padding: "9px 12px 9px 14px", background: "#12384A", border: "1px solid #1E5A73", borderRadius: 12 }}>
+              <button onClick={() => setTab("chores")} style={{ flex: 1, background: "none", border: "none", padding: 0, textAlign: "left", color: "#9FD4EA", fontSize: 13, fontFamily: "'Baloo 2', sans-serif", cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
+                Your chore list has changed — review your effort goal.
+              </button>
+              <button onClick={dismissGoalNudge} aria-label="Dismiss effort goal reminder" style={{ background: "none", border: "none", color: "#7FA3AC", fontSize: 16, lineHeight: 1, padding: "0 2px", cursor: "pointer", WebkitTapHighlightColor: "transparent" }}>
+                ✕
+              </button>
+            </div>
+          )}
           {simDays > 0 && (
             <div style={{ margin: "4px 20px 0", padding: "9px 14px", background: "#3B3215", border: "1px solid #6E5C21", borderRadius: 12, fontSize: 13, color: "#FFC65E", textAlign: "center" }}>
               🧪 Time machine — tap bubbles to test. Nothing here is saved or shared.
@@ -1731,12 +1767,40 @@ export default function ChoreBubbles() {
             </button>
           </div>
 
-          <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Household settings</div>
+          <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Effort goal</div>
+          {goalSuggestion ? (
+            <>
+              <div style={{ marginTop: 8, padding: "14px 16px", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 14 }}>
+                <div style={{ fontSize: 13, color: "#B9D2D8", lineHeight: 1.5 }}>
+                  Your {goalSuggestion.choreCount} chores need about <strong style={{ color: "#5FE0BB" }}>{Math.round(goalSuggestion.demandPerWeek)} pts a week</strong> to stay current — roughly {Math.round(goalSuggestion.fairShare)} each.
+                </div>
+                <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, margin: "10px 0 2px" }}>
+                  Suggested: green at {goalSuggestion.green}, full bar {goalSuggestion.scale}
+                </div>
+                {(settings.weeklyGoal !== goalSuggestion.scale || greenMin !== goalSuggestion.green) ? (
+                  <button onClick={applyGoalSuggestion} style={{ ...btnStyle("#5FE0BB"), width: "100%", marginTop: 12, fontSize: 14 }}>
+                    Use these numbers
+                  </button>
+                ) : (
+                  <div style={{ fontSize: 12, color: "#7FA3AC", marginTop: 8 }}>Your goal matches this. Nothing to change.</div>
+                )}
+              </div>
+              <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "10px 0 2px" }}>
+                Fine-tune
+              </div>
+            </>
+          ) : (
+            <div style={{ color: "#7FA3AC", fontSize: 12, margin: "6px 0 2px" }}>
+              Add some chores and the app will suggest a goal that matches them.
+            </div>
+          )}
           <Stepper label="Effort scale (full bar)" value={settings.weeklyGoal} min={4} max={40} onChange={(v) => commit({ type: "settings:patch", patch: { weeklyGoal: v, greenStart: Math.min(greenMin, v) } })} />
           <Stepper label="Green zone starts at" value={greenMin} min={2} max={settings.weeklyGoal} onChange={(v) => commit({ type: "settings:patch", patch: { greenStart: v } })} format={(v) => `${v} pts`} />
           <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "-4px 0 8px" }}>
             Land in the green by reaching {greenMin} of {settings.weeklyGoal} points. The full bar is a reference, not a cutoff.
           </div>
+
+          <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Household settings</div>
           <NameEditor settings={settings} onSave={(nameA, nameB) => commit({ type: "settings:patch", patch: { nameA, nameB } })} />
           <button onClick={() => setAskWho(true)} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", marginTop: 12, border: "1px solid #1E4152", fontSize: 13 }}>
             This phone belongs to: {me === "a" ? settings.nameA : me === "b" ? settings.nameB : "?"} (change)
