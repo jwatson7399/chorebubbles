@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyOperation, normalizeData } from "./dataModel.js";
 import {
   choreNamesForKudos,
+  hasGivenKudosForCompletion,
   kudosFeed,
   newestCompletionTimestamp,
   normalizeKudos,
@@ -84,6 +85,13 @@ describe("kudos feed", () => {
 
   it("resolves names and omits missing completions", () => {
     expect(choreNamesForKudos(items[0], completions, [])).toEqual(["Dishes"]);
+  });
+
+  it("identifies completions this person has already thanked", () => {
+    expect(hasGivenKudosForCompletion(items, "a", "b-new")).toBe(true);
+    expect(hasGivenKudosForCompletion(items, "b", "b-new")).toBe(false);
+    expect(hasGivenKudosForCompletion(items, "a", "missing")).toBe(true);
+    expect(hasGivenKudosForCompletion(items, "a", "joint")).toBe(false);
   });
 
   it("shows both directions newest first and caps the feed", () => {

@@ -63,6 +63,13 @@ export function kudosForPerson(kudos, me) {
     .sort((a, b) => timestamp(b.at) - timestamp(a.at));
 }
 
+export function hasGivenKudosForCompletion(kudos, me, completionId) {
+  if (!person(me) || !completionId) return false;
+  return (kudos || []).some(
+    (entry) => entry?.from === me && (entry.completionIds || []).includes(completionId)
+  );
+}
+
 export function choreNamesForKudos(kudos, completions, chores) {
   const completionsById = new Map((completions || []).map((entry) => [entry.id, entry]));
   const choresById = new Map((chores || []).map((chore) => [chore.id, chore]));

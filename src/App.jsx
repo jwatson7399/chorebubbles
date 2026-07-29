@@ -47,6 +47,7 @@ import { creditedCompletionIds, shouldPulseHealth } from "./healthPulse.js";
 import { applyOperation, defaultData, normalizeData } from "./dataModel.js";
 import {
   choreNamesForKudos,
+  hasGivenKudosForCompletion,
   kudosFeed,
   kudosForPerson,
   newestCompletionTimestamp,
@@ -1516,6 +1517,11 @@ export default function ChoreBubbles() {
       setKudosComposer(activitySummary);
     }
   };
+  const openLogKudos = (completion) => {
+    if (!other || simDays > 0 || completion?.by !== other) return;
+    setKudosMessage("");
+    setKudosComposer({ person: other, completions: [completion] });
+  };
   const openKudosView = () => {
     if (!me || unreadKudos.length === 0) return;
     const marker = newestKudosTimestamp(unreadKudos, kudosSeenThrough);
@@ -1853,28 +1859,52 @@ export default function ChoreBubbles() {
 
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Recent activity</div>
           {recent.length === 0 && <div style={{ color: "#7FA3AC", fontSize: 14 }}>Nothing logged yet. Tap a bubble to get started.</div>}
-          {recent.map((c) => (
-            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderBottom: "1px solid #1A3542" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>
-                  {c.by === "service" ? "🧹 " : c.by === "reset" ? "🔄 " : ""}{c.choreName}
+          {recent.map((c) => {
+            const canGiveKudos = simDays === 0 && !!other && c.by === other;
+            const alreadyKudosed = canGiveKudos && hasGivenKudosForCompletion(view.kudos, me, c.id);
+            return (
+              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: "1px solid #1A3542" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>
+                    {c.by === "service" ? "🧹 " : c.by === "reset" ? "🔄 " : ""}{c.choreName}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#7FA3AC" }}>
+                    {c.by === "a" ? settings.nameA : c.by === "b" ? settings.nameB : c.by === "joint" ? "Together" : c.by === "reset" ? "Caught up" : "Cleaning service"} · {timeAgo(c.ts)}
+                  </div>
                 </div>
-                <div style={{ fontSize: 12, color: "#7FA3AC" }}>
-                  {c.by === "a" ? settings.nameA : c.by === "b" ? settings.nameB : c.by === "joint" ? "Together" : c.by === "reset" ? "Caught up" : "Cleaning service"} · {timeAgo(c.ts)}
+                <div style={{ fontSize: 13, color: c.by === "service" || c.by === "reset" ? "#7FA3AC" : "#5FE0BB", fontWeight: 700, whiteSpace: "nowrap" }}>
+                  {completionImpact(c)}
                 </div>
+                {canGiveKudos && (
+                  <button
+                    type="button"
+                    disabled={alreadyKudosed}
+                    onClick={() => openLogKudos(c)}
+                    aria-label={alreadyKudosed ? `Kudos already sent for ${c.choreName}` : `Give kudos for ${c.choreName}`}
+                    title={alreadyKudosed ? "Kudos sent" : `Give kudos to ${otherName}`}
+                    style={{
+                      ...btnStyle(alreadyKudosed ? "#172A35" : "#2B2340", alreadyKudosed ? "#7FA3AC" : "#D9C2FF"),
+                      padding: "5px 9px",
+                      fontSize: 13,
+                      border: `1px solid ${alreadyKudosed ? "#294653" : "#6D5796"}`,
+                      lineHeight: 1,
+                      flexShrink: 0,
+                      cursor: alreadyKudosed ? "default" : "pointer",
+                    }}
+                  >
+                    {alreadyKudosed ? "✓" : "👏"}
+                  </button>
+                )}
+                <button
+                  onClick={() => removeCompletion(c)}
+                  aria-label={`Delete ${c.choreName}`}
+                  style={{ ...btnStyle("#0F2530", "#FF8B7B"), padding: "5px 10px", fontSize: 13, border: "1px solid #1E4152", lineHeight: 1, flexShrink: 0 }}
+                >
+                  ✕
+                </button>
               </div>
-              <div style={{ fontSize: 13, color: c.by === "service" || c.by === "reset" ? "#7FA3AC" : "#5FE0BB", fontWeight: 700, whiteSpace: "nowrap" }}>
-                {completionImpact(c)}
-              </div>
-              <button
-                onClick={() => removeCompletion(c)}
-                aria-label={`Delete ${c.choreName}`}
-                style={{ ...btnStyle("#0F2530", "#FF8B7B"), padding: "5px 10px", fontSize: 13, border: "1px solid #1E4152", lineHeight: 1, flexShrink: 0 }}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -2192,7 +2222,7 @@ export default function ChoreBubbles() {
         <Modal onClose={() => { setKudosComposer(null); setKudosMessage(""); }}>
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 20, fontWeight: 700 }}>Kudos for {personName(kudosComposer.person)} 👏</div>
           <div style={{ color: "#7FA3AC", fontSize: 12.5, lineHeight: 1.4, margin: "4px 0 14px" }}>
-            For {kudosComposer.completions.length} recent chore{kudosComposer.completions.length === 1 ? "" : "s"}. A message is optional.
+            For {kudosComposer.completions.length} chore{kudosComposer.completions.length === 1 ? "" : "s"}. A message is optional.
           </div>
           <textarea
             rows={4}
