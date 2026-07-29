@@ -50,6 +50,16 @@ export function applyOperation(value, op) {
       next = { ...data, chores, completions: [...data.completions, op.completion] };
       break;
     }
+    case "completion:add-and-delete-chore": {
+      if (data.completions.some((item) => item.id === op.completion.id)) break;
+      if (!data.chores.some((item) => item.id === op.choreId)) break;
+      next = {
+        ...data,
+        chores: data.chores.filter((item) => item.id !== op.choreId),
+        completions: [...data.completions, op.completion],
+      };
+      break;
+    }
     case "completion:remove-and-restore": {
       const ids = new Set(op.ids || []);
       const chores = data.chores.map((item) =>
@@ -58,9 +68,35 @@ export function applyOperation(value, op) {
       next = { ...data, chores, completions: data.completions.filter((item) => !ids.has(item.id)) };
       break;
     }
+    case "completion:remove-and-restore-chore": {
+      const ids = new Set(op.ids || []);
+      const exists = data.chores.some((item) => item.id === op.chore?.id);
+      next = {
+        ...data,
+        chores: exists || !op.chore ? data.chores : [...data.chores, op.chore],
+        completions: data.completions.filter((item) => !ids.has(item.id)),
+      };
+      break;
+    }
     case "completion:remove": {
       const ids = new Set(op.ids || []);
       next = { ...data, completions: data.completions.filter((item) => !ids.has(item.id)) };
+      break;
+    }
+    case "completion:remove-many-and-restore-chores": {
+      const ids = new Set(op.ids || []);
+      const known = new Set(data.chores.map((item) => item.id));
+      const restored = [];
+      for (const chore of op.chores || []) {
+        if (!chore?.id || known.has(chore.id)) continue;
+        known.add(chore.id);
+        restored.push(chore);
+      }
+      next = {
+        ...data,
+        chores: [...data.chores, ...restored],
+        completions: data.completions.filter((item) => !ids.has(item.id)),
+      };
       break;
     }
     case "chore:upsert": {

@@ -42,9 +42,22 @@ import {
 } from "./choreHistory.js";
 import { choreTemperature, streakLabel, thawBonus } from "./choreTemperature.js";
 import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
-import { bubbleHitDiameter, rankBubbleTargets, usesCompactBubbleLabel } from "./bubblePresentation.js";
+import { bubbleHitDiameter, clampBubbleRadius, rankBubbleTargets, usesCompactBubbleLabel } from "./bubblePresentation.js";
 import { creditedCompletionIds, shouldPulseHealth } from "./healthPulse.js";
 import { applyOperation, defaultData, normalizeData } from "./dataModel.js";
+import {
+  CELEBRITY_OWNERS,
+  DAY_MS,
+  celebrityBadgeLabel,
+  celebrityChoreForSave,
+  celebrityCompletionOrder,
+  celebrityDueDaysForForm,
+  celebrityOwnerLabel,
+  celebrityTiming,
+  isCelebrityChore,
+  isPreferredCelebrityActor,
+  recurringChores,
+} from "./celebrityChore.js";
 import {
   choreNamesForKudos,
   hasGivenKudosForCompletion,
@@ -137,9 +150,10 @@ function choreTimingLabel(chore, completions, pauses) {
 
 // Weighted share of chores currently inside their frequency window
 function healthScore(chores, completions, pauses) {
-  if (!chores.length) return 1;
+  const recurring = recurringChores(chores);
+  if (!recurring.length) return 1;
   let num = 0, den = 0;
-  for (const ch of chores) {
+  for (const ch of recurring) {
     const u = urgencyOf(ch, completions, pauses);
     const s = Math.max(0, Math.min(2 - u, 1));
     num += s * ch.importance;
@@ -183,7 +197,7 @@ function historyDate(ts) {
 }
 
 // ---------- Bubble field ----------
-function BubbleField({ chores, completions, pauses, onTap, popId, simDays, suggestedIds }) {
+function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId, simDays, suggestedIds, settings }) {
   const wrapRef = useRef(null);
   const [size, setSize] = useState({ w: 360, h: 480 });
   const [nodes, setNodes] = useState([]);
@@ -206,17 +220,29 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
     const areaBudget = (size.w * size.h * 0.55) / n;
     const baseR = Math.sqrt(areaBudget / Math.PI);
     const ranked = rankBubbleTargets(
-      chores.map((ch, i) => ({
-        id: ch.id,
-        chore: ch,
-        importance: ch.importance,
-        urgency: urgencyOf(ch, completions, pauses),
-        ageDays: activeDaysSinceDone(ch, completions, pauses),
-        temp: choreTemperature(ch, completions, pauses, now()),
-        hue: bubbleHue(i),
-      })),
+      chores.map((ch, i) => {
+        const celebrity = isCelebrityChore(ch);
+        const timing = celebrity ? celebrityTiming(ch, now()) : null;
+        return {
+          id: ch.id,
+          chore: ch,
+          celebrity,
+          timing,
+          importance: celebrity ? 1 : ch.importance,
+          urgency: celebrity ? timing.progress : urgencyOf(ch, completions, pauses),
+          ageDays: celebrity ? timing.progress * Math.max(1, (Number(ch.dueAt) - Number(ch.createdAt)) / DAY) : activeDaysSinceDone(ch, completions, pauses),
+          temp: celebrity ? null : choreTemperature(ch, completions, pauses, now()),
+          hue: celebrity ? "#E87393" : bubbleHue(i),
+        };
+      }),
       baseR
-    );
+    ).map((item) => item.celebrity
+      ? {
+          ...item,
+          prominence: Math.max(0.45, item.timing.progress),
+          radius: clampBubbleRadius(baseR * (0.72 + 0.55 * item.timing.progress)),
+        }
+      : item);
     const orbit = Math.min(size.w, size.h) * 0.38;
     return ranked.map((item, index) => {
       const angle = index * 2.399963229728653;
@@ -236,7 +262,7 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
     const ring = Math.min(size.w, size.h) * 0.32;
     const next = targets.map((t, i) => {
       const p = prev.get(t.id);
-      if (p) return Object.assign(p, { r: t.r, chore: t.chore, urgency: t.urgency, temp: t.temp, prominence: t.prominence, priority: t.priority, focusX: t.focusX, focusY: t.focusY, hue: t.hue });
+      if (p) return Object.assign(p, { r: t.r, chore: t.chore, celebrity: t.celebrity, timing: t.timing, urgency: t.urgency, temp: t.temp, prominence: t.prominence, priority: t.priority, focusX: t.focusX, focusY: t.focusY, hue: t.hue });
       // New bubbles enter near their priority orbit instead of stacking.
       const angle = (i / Math.max(count, 1)) * Math.PI * 2;
       return {
@@ -360,9 +386,10 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
         </div>
       )}
       {nodes.map((n) => {
-        const due = n.urgency >= 1;
-        const overdue = n.urgency >= 1.5;
-        const suggested = suggestedIds?.has(n.id);
+        const celebrity = n.celebrity;
+        const due = celebrity ? n.timing.overdue : n.urgency >= 1;
+        const overdue = celebrity ? n.timing.overdue : n.urgency >= 1.5;
+        const suggested = !celebrity && suggestedIds?.has(n.id);
         const compactLabel = usesCompactBubbleLabel(n.r);
         const hitDiameter = bubbleHitDiameter(n.r);
         const showInlineLabel = n.r >= 14;
@@ -375,7 +402,7 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
         return (
           <div
             key={n.id}
-            aria-label={`${n.chore.name}, ${n.chore.difficulty} point${n.chore.difficulty === 1 ? "" : "s"}${n.temp?.label ? `, ${n.temp.label}` : ""}${suggested ? ", suggested chore" : ""}`}
+            aria-label={`${n.chore.name}, ${n.chore.difficulty} point${n.chore.difficulty === 1 ? "" : "s"}${celebrity ? `, celebrity chore, ${celebrityBadgeLabel(n.chore, settings, now())}` : ""}${n.temp?.label ? `, ${n.temp.label}` : ""}${suggested ? ", suggested chore" : ""}`}
             data-label-mode={!showInlineLabel ? "hidden" : compactLabel ? "compact" : "full"}
             onPointerDown={(e) => onPointerDown(e, n)}
             onPointerMove={(e) => onPointerMove(e, n)}
@@ -396,11 +423,44 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
               WebkitTapHighlightColor: "transparent",
               zIndex: dragRef.current && dragRef.current.id === n.id
                 ? 6
-                : suggested
+                : celebrity
                 ? 5
+                : suggested
+                ? 4
                 : 1 + Math.round(n.prominence * 3),
             }}
           >
+            {celebrity && !overdue && (
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  width: n.r * 2 + 14,
+                  height: n.r * 2 + 14,
+                  borderRadius: "50%",
+                  background: "conic-gradient(from 0deg, transparent 0 62%, rgba(255,203,69,0.08) 69%, #FFD45E 82%, rgba(255,229,151,0.12) 92%, transparent 100%)",
+                  filter: "drop-shadow(0 0 8px rgba(255,199,51,0.7))",
+                  animation: "celebritySpotlight 3.3s linear infinite",
+                  pointerEvents: "none",
+                }}
+              />
+            )}
+            {celebrity && overdue && [0, 1].map((index) => (
+              <span
+                key={index}
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  width: n.r * 2 + 10,
+                  height: n.r * 2 + 10,
+                  borderRadius: "50%",
+                  border: "2px solid #FF4D61",
+                  boxShadow: "0 0 25px rgba(255,38,71,0.8)",
+                  animation: `celebrityAlarm 1.05s ${index * 0.52}s ease-out infinite`,
+                  pointerEvents: "none",
+                }}
+              />
+            ))}
             <div
               style={{
                 position: "relative",
@@ -408,19 +468,27 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
                 height: n.r * 2,
                 flexShrink: 0,
                 borderRadius: "50%",
-                background: `radial-gradient(circle at 32% 30%, ${n.hue}F5, ${n.hue}AA 60%, ${n.hue}66)`,
+                background: celebrity
+                  ? "radial-gradient(circle at 32% 30%, #F6A0B6, #DB6988 60%, #A73E61)"
+                  : `radial-gradient(circle at 32% 30%, ${n.hue}F5, ${n.hue}AA 60%, ${n.hue}66)`,
                 boxShadow: suggested
-                  ? `${bubbleShadow}, 0 0 0 3px #FFD95A, 0 0 22px #FFD95ADD, 0 0 42px #FFD95A88`
+                  ? `${bubbleShadow}, 0 0 0 3px #5FE0BB, 0 0 22px #5FE0BBDD, 0 0 42px #5FE0BB77`
+                  : celebrity
+                  ? overdue
+                    ? "inset 0 0 12px rgba(255,255,255,0.25), 0 0 18px rgba(255,77,97,0.7)"
+                    : "inset 0 0 12px rgba(255,255,255,0.25), 0 0 14px rgba(255,199,51,0.42)"
                   : bubbleShadow,
-                outline: suggested ? "2px solid #FFF0A6" : "none",
+                outline: suggested ? "2px solid #A9F7E3" : "none",
                 outlineOffset: suggested ? 3 : 0,
-                border: due ? `2px solid ${n.hue}` : `1.5px solid ${n.hue}66`,
+                border: celebrity
+                  ? `2px solid ${overdue ? "#FF5B68" : "#FFD45E"}`
+                  : due ? `2px solid ${n.hue}` : `1.5px solid ${n.hue}66`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 overflow: "hidden",
                 pointerEvents: "none",
-                animation: popId === n.id ? `pop 0.65s ease-out` : `breathe ${overdue ? 2.2 : 3.6}s ease-in-out infinite`,
+                animation: popId === n.id ? `pop 0.65s ease-out` : celebrity ? "none" : `breathe ${overdue ? 2.2 : 3.6}s ease-in-out infinite`,
                 transition: "width 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), height 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), box-shadow 0.35s ease, outline-color 0.35s ease",
               }}
             >
@@ -520,9 +588,67 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
                 </span>
               )}
             </div>
+            {celebrity && (
+              <span
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  top: Math.max(0, (hitDiameter - n.r * 2) / 2 - 5),
+                  right: Math.max(-4, (hitDiameter - n.r * 2) / 2 - 8),
+                  minHeight: 25,
+                  padding: "0 8px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "2px solid #0B202C",
+                  borderRadius: 999,
+                  color: overdue ? "#3A0711" : "#073031",
+                  background: overdue ? "#FF7783" : "#5FE0BB",
+                  boxShadow: "0 3px 9px rgba(0,0,0,0.34)",
+                  fontFamily: "'Baloo 2', sans-serif",
+                  fontSize: 9.5,
+                  fontWeight: 700,
+                  lineHeight: 1,
+                  whiteSpace: "nowrap",
+                  pointerEvents: "none",
+                }}
+              >
+                {celebrityBadgeLabel(n.chore, settings, now())}
+              </span>
+            )}
           </div>
         );
       })}
+      {onAddCelebrity && (
+        <button
+          type="button"
+          onClick={onAddCelebrity}
+          aria-label="Add celebrity bubble"
+          style={{
+            position: "absolute",
+            right: 14,
+            bottom: 14,
+            zIndex: 12,
+            width: 68,
+            height: 68,
+            display: "grid",
+            placeItems: "center",
+            border: "1px solid rgba(247,198,78,0.28)",
+            borderRadius: "50%",
+            color: "rgba(255,215,112,0.58)",
+            background: "radial-gradient(circle at 35% 30%, rgba(255,225,143,0.10), transparent 38%), rgba(214,158,35,0.075)",
+            boxShadow: "inset 0 0 18px rgba(255,211,99,0.055), 0 0 18px rgba(218,168,41,0.04)",
+            fontFamily: "'Baloo 2', sans-serif",
+            cursor: "pointer",
+            WebkitTapHighlightColor: "transparent",
+          }}
+        >
+          <span style={{ width: 52, fontSize: 9, lineHeight: 1.08, fontWeight: 700 }}>
+            <strong style={{ display: "block", fontSize: 17, lineHeight: 1 }}>+</strong>
+            celebrity bubble
+          </span>
+        </button>
+      )}
     </div>
   );
 }
@@ -773,6 +899,61 @@ function ChoreFields({ title, value, onChange }) {
           </span>
         )}
       </label>
+    </section>
+  );
+}
+
+function CelebrityChoreFields({ value, onChange, settings }) {
+  const effortText = (level) => ["", "Very easy", "Easy", "Moderate", "Hard", "Very hard"][level];
+  const ownerLabels = {
+    a: (settings.nameA || "Julian")[0]?.toUpperCase() || "J",
+    joint: `${(settings.nameA || "Julian")[0]?.toUpperCase() || "J"}+${(settings.nameB || "Kristine")[0]?.toUpperCase() || "K"}`,
+    b: (settings.nameB || "Kristine")[0]?.toUpperCase() || "K",
+    either: `${(settings.nameA || "Julian")[0]?.toUpperCase() || "J"} or ${(settings.nameB || "Kristine")[0]?.toUpperCase() || "K"}`,
+  };
+
+  return (
+    <section>
+      <input
+        value={value.name}
+        placeholder="What needs doing?"
+        onChange={(event) => onChange({ name: event.target.value })}
+        style={{ width: "100%", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 12, padding: "12px 14px", color: "#E8F3F4", fontSize: 15, fontFamily: "inherit", marginBottom: 6 }}
+      />
+      <Stepper
+        label="Needs doing within"
+        value={value.dueDays}
+        min={1}
+        max={60}
+        onChange={(dueDays) => onChange({ dueDays, dueAt: realNow() + dueDays * DAY_MS })}
+        format={(days) => `${days}d`}
+      />
+      <ScaleSelector label="Effort" hint="How hard is this one-time job?" value={value.difficulty} min={1} max={5} onChange={(difficulty) => onChange({ difficulty })} valueLabel={effortText} endLabels={["Very easy", "Very hard"]} />
+      <div style={{ padding: "10px 0 4px" }}>
+        <div style={{ color: "#E8F3F4", fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Ownership</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 6 }}>
+          {CELEBRITY_OWNERS.map((owner) => {
+            const active = value.owner === owner;
+            return (
+              <button
+                key={owner}
+                type="button"
+                onClick={() => onChange({ owner })}
+                aria-pressed={active}
+                title={celebrityOwnerLabel(owner, settings)}
+                style={{
+                  ...btnStyle(active ? "#5FE0BB" : "#0F2530", active ? "#0C1B26" : "#B9D2D8"),
+                  padding: "10px 3px",
+                  border: active ? "none" : "1px solid #1E4152",
+                  fontSize: owner === "either" ? 11.5 : 13,
+                }}
+              >
+                {ownerLabels[owner]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </section>
   );
 }
@@ -1268,15 +1449,25 @@ export default function ChoreBubbles() {
   };
 
   const resetActivity = () => {
-    commit({ type: "completion:remove", ids: view.completions.map((item) => item.id) });
+    commit({
+      type: "completion:remove-many-and-restore-chores",
+      ids: view.completions.map((item) => item.id),
+      chores: view.completions.map((item) => item.celebrityChore).filter(Boolean),
+    });
   };
 
   // Remove a single logged completion: drops it from the activity log, takes its
   // effort points back off, and regrows that chore's bubble. Undoable.
   const removeCompletion = (entry) => {
-    if (!commit({ type: "completion:remove", ids: [entry.id] })) return;
+    const celebrityChore = entry.celebrityChore;
+    const removeOperation = celebrityChore
+      ? { type: "completion:remove-and-restore-chore", ids: [entry.id], chore: celebrityChore }
+      : { type: "completion:remove", ids: [entry.id] };
+    if (!commit(removeOperation)) return;
     showToast(`Removed ${entry.choreName}`, () => {
-      commit({ type: "completion:add", completion: entry });
+      commit(celebrityChore
+        ? { type: "completion:add-and-delete-chore", completion: entry, choreId: celebrityChore.id }
+        : { type: "completion:add", completion: entry });
       setToast(null);
     });
   };
@@ -1289,10 +1480,11 @@ export default function ChoreBubbles() {
   const logCompletion = (chore, by) => {
     // "when" lets you backdate a chore you forgot to log (e.g. done yesterday).
     const ts = now() - tapWhenDays * DAY;
+    const celebrity = isCelebrityChore(chore);
     const twoStep = isTwoStepChore(chore);
     // The bonus is banked on the record now, so the points stand even after the chore
     // warms back up and stops looking like a rescue.
-    const bonus = thawBonus(chore, choreTemperature(chore, view.completions, pauses, now()).tier);
+    const bonus = celebrity ? 0 : thawBonus(chore, choreTemperature(chore, view.completions, pauses, now()).tier);
     const comp = {
       id: uid(),
       choreId: chore.id,
@@ -1302,8 +1494,11 @@ export default function ChoreBubbles() {
       ts,
       ...(bonus > 0 ? { bonus } : {}),
       ...(twoStep ? { twoStepIndex: chore.twoStep.active } : {}),
+      ...(celebrity ? { celebrityChore: chore } : {}),
     };
-    const operation = twoStep
+    const operation = celebrity
+      ? { type: "completion:add-and-delete-chore", completion: comp, choreId: chore.id }
+      : twoStep
       ? { type: "completion:add-and-advance", completion: comp, choreId: chore.id }
       : { type: "completion:add", completion: comp };
     if (!commit(operation)) return;
@@ -1319,6 +1514,8 @@ export default function ChoreBubbles() {
     showToast(`${chore.name} done ${by === "joint" ? "" : "by "}${who}${when}${thawed}${nextStep ? ` · ${nextStep} is up next` : ""}`, () => {
       commit(twoStep
         ? { type: "completion:remove-and-restore", ids: [comp.id], chore }
+        : celebrity
+        ? { type: "completion:remove-and-restore-chore", ids: [comp.id], chore }
         : { type: "completion:remove", ids: [comp.id] });
       setToast(null);
     });
@@ -1326,7 +1523,7 @@ export default function ChoreBubbles() {
 
   const openService = () => {
     const sel = {};
-    for (const ch of view.chores) sel[ch.id] = !!ch.service;
+    for (const ch of recurringChores(view.chores)) sel[ch.id] = !!ch.service;
     setServiceSel(sel);
     setServiceOpen(true);
   };
@@ -1334,7 +1531,7 @@ export default function ChoreBubbles() {
   const confirmService = () => {
     const ts = now();
     const comps = view.chores
-      .filter((ch) => serviceSel[ch.id])
+      .filter((ch) => !isCelebrityChore(ch) && serviceSel[ch.id])
       .map((ch) => ({ id: uid(), choreId: ch.id, choreName: ch.name, difficulty: ch.difficulty, by: "service", ts }));
     if (!commit({ type: "completion:add-many", completions: comps })) return;
     setServiceOpen(false);
@@ -1345,7 +1542,9 @@ export default function ChoreBubbles() {
   };
 
   const saveChore = (ch) => {
-    const normalized = isTwoStepChore(ch)
+    const normalized = isCelebrityChore(ch)
+      ? celebrityChoreForSave(ch, realNow())
+      : isTwoStepChore(ch)
       ? materializeTwoStepChore(ch)
       : { ...ch, details: normalizeDetails(ch.details) };
     const chore = normalized.id ? normalized : { ...normalized, id: uid(), createdAt: realNow() };
@@ -1371,7 +1570,7 @@ export default function ChoreBubbles() {
   // without having paused. Resets bubble sizes and health without crediting anyone.
   const resetBubbles = () => {
     const ts = realNow();
-    const comps = view.chores.map((ch) => ({ id: uid(), choreId: ch.id, choreName: ch.name, difficulty: ch.difficulty, by: "reset", ts }));
+    const comps = recurringChores(view.chores).map((ch) => ({ id: uid(), choreId: ch.id, choreName: ch.name, difficulty: ch.difficulty, by: "reset", ts }));
     if (comps.length === 0) return;
     commit({ type: "completion:add-many", completions: comps });
     showToast("Board reset — every chore marked fresh");
@@ -1459,6 +1658,8 @@ export default function ChoreBubbles() {
   }
 
   const { settings } = view;
+  const recurringViewChores = recurringChores(view.chores);
+  const celebrityViewChores = view.chores.filter(isCelebrityChore);
   const {
     pauses,
     goal,
@@ -1478,7 +1679,7 @@ export default function ChoreBubbles() {
     gap,
     suggestion,
   } = logStats;
-  const health = healthScore(view.chores, view.completions, pauses);
+  const health = healthScore(recurringViewChores, view.completions, pauses);
   const healthPct = Math.round(health * 100);
   const healthColor = healthPct >= 80 ? "#5FE0BB" : healthPct >= 50 ? "#FFC65E" : "#FF8B7B";
   const recent = [...view.completions].sort((a, b) => b.ts - a.ts).slice(0, 30);
@@ -1487,10 +1688,10 @@ export default function ChoreBubbles() {
   );
   const editChoreHistory = editChore?.id ? choreHistories.get(editChore.id) || [] : [];
   const tapChoreHistory = tapChore?.id ? choreHistories.get(tapChore.id) || [] : [];
-  const tapChoreTemp = tapChore?.id ? choreTemperature(tapChore, view.completions, pauses, now()) : null;
+  const tapChoreTemp = tapChore?.id && !isCelebrityChore(tapChore) ? choreTemperature(tapChore, view.completions, pauses, now()) : null;
   // Advertised before the tap, not revealed after it — a frozen bubble should look
   // worth attacking.
-  const tapChoreBonus = tapChore?.id ? thawBonus(tapChore, tapChoreTemp.tier) : 0;
+  const tapChoreBonus = tapChoreTemp ? thawBonus(tapChore, tapChoreTemp.tier) : 0;
   const unseenOtherActivity = me && markerOwner === me && simDays === 0
     ? unseenCompletions(view.completions, me, seenThrough)
     : [];
@@ -1500,6 +1701,13 @@ export default function ChoreBubbles() {
   const receivedKudos = me ? kudosForPerson(view.kudos, me) : [];
   const recentKudos = me ? kudosFeed(view.kudos, view.completions, view.chores, me) : [];
   const personName = (person) => person === "b" ? settings.nameB : settings.nameA;
+  const completionActorName = (actor) => actor === "joint" ? "We did it together" : `Done by ${personName(actor)}`;
+  const openCelebrityEditor = (chore = null) => {
+    if (simDays > 0) return;
+    setEditChore(chore
+      ? { ...chore, dueDays: celebrityDueDaysForForm(chore, realNow()) }
+      : { type: "celebrity", name: "", difficulty: 2, owner: "either", dueDays: 3 });
+  };
   const other = me ? otherPerson(me) : null;
   const otherName = other ? personName(other) : "";
   const openActivitySummary = () => {
@@ -1602,6 +1810,8 @@ export default function ChoreBubbles() {
         @keyframes greenArrival { 0%{transform:scale(0.82); box-shadow:0 0 0 #5FE0BB00} 55%{transform:scale(1.08); box-shadow:0 0 14px #5FE0BB66} 100%{transform:scale(1); box-shadow:0 0 0 #5FE0BB00} }
         @keyframes noticeGlow { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.16)} }
         @keyframes wilt { 0%,100%{transform:rotate(-6deg) translateY(1px)} 50%{transform:rotate(-10deg) translateY(3px)} }
+        @keyframes celebritySpotlight { to { transform:rotate(360deg) } }
+        @keyframes celebrityAlarm { 0%{transform:scale(.9);opacity:.95} 75%,100%{transform:scale(1.25);opacity:0} }
         @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
         * { box-sizing: border-box; margin: 0; }
         button:active { transform: scale(0.96); }
@@ -1630,7 +1840,7 @@ export default function ChoreBubbles() {
       </div>
 
       {/* Our home's health bar */}
-      {view.chores.length > 0 && (
+      {recurringViewChores.length > 0 && (
         <div style={{ padding: "2px 20px 10px" }}>
           <div style={{ textAlign: "center", marginBottom: 2 }}>
             <span
@@ -1704,10 +1914,20 @@ export default function ChoreBubbles() {
           )}
           {housePaused && (
             <div style={{ margin: "4px 20px 0", padding: "9px 14px", background: "#12384A", border: "1px solid #1E5A73", borderRadius: 12, fontSize: 13, color: "#9FD4EA", textAlign: "center" }}>
-              🏖 Household paused. Bubbles are frozen until you resume.
+              🏖 Household paused. Recurring bubbles are frozen; celebrity deadlines keep counting.
             </div>
           )}
-          <BubbleField chores={view.chores} completions={view.completions} pauses={pauses} onTap={(ch) => { setTapWhenDays(0); setTapHistoryOpen(false); setTapChore(ch); }} popId={popId} simDays={simDays} suggestedIds={suggestedBubbleIds} />
+          <BubbleField
+            chores={view.chores}
+            completions={view.completions}
+            pauses={pauses}
+            onTap={(ch) => { setTapWhenDays(0); setTapHistoryOpen(false); setTapChore(ch); }}
+            onAddCelebrity={simDays === 0 ? () => openCelebrityEditor() : null}
+            popId={popId}
+            simDays={simDays}
+            suggestedIds={suggestedBubbleIds}
+            settings={settings}
+          />
           <div style={{ padding: "0 20px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
             {canShuffleSuggestions && <IntensityPicker value={intensity} onChange={setIntensity} compact />}
             <div style={{ display: "flex", gap: 8 }}>
@@ -1911,15 +2131,54 @@ export default function ChoreBubbles() {
       {tab === "chores" && (
         <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px 20px" }}>
           {simDays > 0 && <div style={{ color: "#FFC65E", fontSize: 13, textAlign: "center", marginBottom: 10 }}>Preview mode is read-only.</div>}
+          <section style={{ marginBottom: 22, padding: "14px", background: "rgba(255,198,94,0.06)", border: "1px solid rgba(255,198,94,0.24)", borderRadius: 16 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 4 }}>
+              <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 18, fontWeight: 700, color: "#FFE29A" }}>Celebrity chores</div>
+              <div style={{ color: "#A58E5E", fontSize: 11.5 }}>{celebrityViewChores.length} active</div>
+            </div>
+            <div style={{ color: "#9EADAE", fontSize: 12, lineHeight: 1.4, marginBottom: 11 }}>One-time jobs with a real deadline. They earn points without changing household health.</div>
+            <button disabled={simDays > 0} onClick={() => openCelebrityEditor()} style={{ ...btnStyle("#3B3215", "#FFE29A"), width: "100%", marginBottom: celebrityViewChores.length ? 8 : 0, border: "1px solid #7D6725", opacity: simDays > 0 ? 0.45 : 1 }}>
+              + Celebrity chore
+            </button>
+            {[...celebrityViewChores].sort((a, b) => Number(a.dueAt) - Number(b.dueAt)).map((ch) => {
+              const timing = celebrityTiming(ch, now());
+              return (
+                <div
+                  key={ch.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Edit celebrity chore ${ch.name}`}
+                  onClick={() => openCelebrityEditor(ch)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openCelebrityEditor(ch);
+                    }
+                  }}
+                  style={{ display: "flex", alignItems: "center", gap: 11, padding: "11px 0 2px", borderTop: "1px solid rgba(255,198,94,0.16)", cursor: "pointer" }}
+                >
+                  <div style={{ width: 30, height: 30, display: "grid", placeItems: "center", borderRadius: "50%", color: timing.overdue ? "#FF8B7B" : "#FFD45E", background: timing.overdue ? "rgba(255,77,97,0.12)" : "rgba(255,212,94,0.10)", border: `1px solid ${timing.overdue ? "rgba(255,77,97,0.45)" : "rgba(255,212,94,0.38)"}`, flexShrink: 0 }}>★</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: "#E8F3F4", fontSize: 14.5, fontWeight: 700 }}>{ch.name}</div>
+                    <div style={{ color: timing.overdue ? "#FF8B7B" : "#9FB6BC", fontSize: 11.5, marginTop: 2 }}>
+                      {celebrityOwnerLabel(ch.owner, settings)} · {timing.longLabel} · effort {ch.difficulty}
+                    </div>
+                  </div>
+                  <div style={{ color: "#A58E5E" }}>›</div>
+                </div>
+              );
+            })}
+          </section>
+
           <button disabled={simDays > 0} onClick={() => setEditChore({ name: "", importance: 3, difficulty: 2, freqDays: 7, service: false })} style={{ ...btnStyle("#5FE0BB"), width: "100%", marginBottom: 10, opacity: simDays > 0 ? 0.45 : 1 }}>
             + Add chore
           </button>
-          {view.chores.length === 0 && (
+          {recurringViewChores.length === 0 && (
             <button disabled={simDays > 0} onClick={addStarters} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", marginBottom: 10, border: "1px solid #1E4152", opacity: simDays > 0 ? 0.45 : 1 }}>
               Load a starter list of common chores
             </button>
           )}
-          {view.chores.map((ch, i) => {
+          {recurringViewChores.map((ch, i) => {
             const latest = choreHistories.get(ch.id)?.[0];
             const resetEntry = latest?.by === "service" || latest?.by === "reset";
             return (
@@ -1973,9 +2232,9 @@ export default function ChoreBubbles() {
             <>
               <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Board maintenance</div>
               <div style={{ fontSize: 12, color: "#7FA3AC", margin: "4px 0 10px" }}>
-                Reset marks every chore as just done (no points) — handy if you were away without pausing. Clear removes all chores so you can build a fresh list together.
+                Reset marks every recurring chore as just done (no points). Clear removes all recurring and celebrity chores so you can build a fresh list together.
               </div>
-              <button disabled={simDays > 0} onClick={() => window.confirm("Reset all bubbles to fresh? Every chore is marked as just done — no points are awarded.") && resetBubbles()} style={{ ...btnStyle("#0F2530", "#5FE0BB"), width: "100%", marginBottom: 8, border: "1px solid #1E4152", opacity: simDays > 0 ? 0.45 : 1 }}>
+              <button disabled={simDays > 0 || recurringViewChores.length === 0} onClick={() => window.confirm("Reset all recurring bubbles to fresh? Every recurring chore is marked as just done — no points are awarded.") && resetBubbles()} style={{ ...btnStyle("#0F2530", "#5FE0BB"), width: "100%", marginBottom: 8, border: "1px solid #1E4152", opacity: simDays > 0 || recurringViewChores.length === 0 ? 0.45 : 1 }}>
                 🔄 Reset all bubbles to fresh
               </button>
               <button disabled={simDays > 0} onClick={() => window.confirm("Clear all chores for both of you? This removes every chore and cannot be undone.") && clearChores()} style={{ ...btnStyle("#0F2530", "#FF8B7B"), width: "100%", border: "1px solid #1E4152", opacity: simDays > 0 ? 0.45 : 1 }}>
@@ -2307,7 +2566,9 @@ export default function ChoreBubbles() {
         <Modal onClose={() => { setTapChore(null); setTapWhenDays(0); setTapHistoryOpen(false); }}>
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 19, fontWeight: 700 }}>{tapChore.name}</div>
           <div style={{ fontSize: 13, color: "#7FA3AC", margin: "4px 0 16px" }}>
-            Last done {timeAgo(lastDone(tapChore, view.completions))} · worth {tapChore.difficulty} pts
+            {isCelebrityChore(tapChore)
+              ? `${celebrityOwnerLabel(tapChore.owner, settings)} · ${celebrityTiming(tapChore, now()).longLabel} · worth ${tapChore.difficulty} pts`
+              : `Last done ${timeAgo(lastDone(tapChore, view.completions))} · worth ${tapChore.difficulty} pts`}
           </div>
           {tapChoreBonus > 0 && (
             <div style={{ margin: "-8px 0 16px", padding: "10px 13px", background: "#102733", border: "1px solid #2A5F7A", borderRadius: 12, fontSize: 13.5, color: "#BFE4F5", display: "flex", alignItems: "center", gap: 9 }}>
@@ -2337,25 +2598,44 @@ export default function ChoreBubbles() {
             ))}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <button onClick={() => logCompletion(tapChore, me || "a")} style={btnStyle("#5FE0BB")}>
-              Done by me ({me === "b" ? settings.nameB : settings.nameA})
-            </button>
-            <button onClick={() => logCompletion(tapChore, me === "b" ? "a" : "b")} style={btnStyle("#0F2530", "#E8F3F4")}>
-              Done by {me === "b" ? settings.nameA : settings.nameB}
-            </button>
-            <button onClick={() => logCompletion(tapChore, "joint")} style={btnStyle("#C7A5F7")}>
-              We did it together
-            </button>
+            {isCelebrityChore(tapChore) ? (
+              celebrityCompletionOrder(tapChore, me || "a").map((actor) => {
+                const preferred = isPreferredCelebrityActor(tapChore, actor);
+                const background = preferred ? (actor === "joint" ? "#C7A5F7" : "#5FE0BB") : "#0F2530";
+                const color = preferred ? "#0C1B26" : "#E8F3F4";
+                return (
+                  <button
+                    key={actor}
+                    onClick={() => logCompletion(tapChore, actor)}
+                    style={{ ...btnStyle(background, color), border: preferred ? "none" : "1px solid #1E4152" }}
+                  >
+                    {completionActorName(actor)}
+                  </button>
+                );
+              })
+            ) : (
+              <>
+                <button onClick={() => logCompletion(tapChore, me || "a")} style={btnStyle("#5FE0BB")}>
+                  Done by me ({me === "b" ? settings.nameB : settings.nameA})
+                </button>
+                <button onClick={() => logCompletion(tapChore, me === "b" ? "a" : "b")} style={btnStyle("#0F2530", "#E8F3F4")}>
+                  Done by {me === "b" ? settings.nameA : settings.nameB}
+                </button>
+                <button onClick={() => logCompletion(tapChore, "joint")} style={btnStyle("#C7A5F7")}>
+                  We did it together
+                </button>
+              </>
+            )}
           </div>
-          <button
+          {!isCelebrityChore(tapChore) && <button
             type="button"
             aria-expanded={tapHistoryOpen}
             onClick={() => setTapHistoryOpen((open) => !open)}
             style={{ width: "100%", marginTop: 12, padding: "10px 2px", border: "none", borderTop: "1px solid #244653", background: "transparent", color: "#B9D2D8", font: "inherit", fontSize: 13.5, fontWeight: 700, textAlign: "left", cursor: "pointer" }}
           >
             {tapHistoryOpen ? "▾" : "▸"} Status &amp; history
-          </button>
-          {tapHistoryOpen && (
+          </button>}
+          {!isCelebrityChore(tapChore) && tapHistoryOpen && (
             <section style={{ paddingTop: 4 }}>
               <div style={{ display: "grid", gap: 7, marginBottom: 14, padding: "11px 13px", background: "#102733", border: "1px solid #1A3B49", borderRadius: 12, fontSize: 12.5 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "#7FA3AC" }}>Timing</span><strong>{choreTimingLabel(tapChore, view.completions, pauses)}</strong></div>
@@ -2398,7 +2678,7 @@ export default function ChoreBubbles() {
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 19, fontWeight: 700, marginBottom: 4 }}>Cleaning service visit</div>
           <div style={{ fontSize: 13, color: "#7FA3AC", marginBottom: 14 }}>Check off what they handled. These bubbles reset without crediting either tally.</div>
           <div style={{ maxHeight: 300, overflowY: "auto", marginBottom: 16 }}>
-            {view.chores.map((ch) => (
+            {recurringViewChores.map((ch) => (
               <label key={ch.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: "1px solid #1A3542", cursor: "pointer" }}>
                 <input
                   type="checkbox"
@@ -2420,8 +2700,14 @@ export default function ChoreBubbles() {
       {editChore && (
         <Modal onClose={() => setEditChore(null)}>
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 19, fontWeight: 700, marginBottom: 14 }}>
-            {editChore.id ? "Edit chore" : "New chore"}
+            {isCelebrityChore(editChore)
+              ? editChore.id ? "Edit celebrity chore" : "New celebrity chore"
+              : editChore.id ? "Edit chore" : "New chore"}
           </div>
+          {isCelebrityChore(editChore) ? (
+            <CelebrityChoreFields value={editChore} settings={settings} onChange={(patch) => setEditChore({ ...editChore, ...patch })} />
+          ) : (
+            <>
           <label style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "10px 0 12px", cursor: "pointer" }}>
             <input
               type="checkbox"
@@ -2489,6 +2775,8 @@ export default function ChoreBubbles() {
               )}
             </section>
           )}
+            </>
+          )}
           <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
             {editChore.id && (
               <button onClick={() => deleteChore(editChore.id)} style={{ ...btnStyle("#0F2530", "#FF8B7B"), flex: 1, border: "1px solid #1E4152" }}>Delete</button>
@@ -2508,7 +2796,7 @@ export default function ChoreBubbles() {
                   : editChore.name.trim()) ? 1 : 0.5,
               }}
             >
-              Save chore
+              {isCelebrityChore(editChore) ? "Save celebrity chore" : "Save chore"}
             </button>
           </div>
         </Modal>
