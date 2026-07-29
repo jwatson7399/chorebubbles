@@ -22,9 +22,16 @@ export function lastDoneLabel(entry, settings = {}) {
   return `Last done by ${completionActor(entry, settings)}`;
 }
 
+// Effort plus any thaw bonus banked on the record when the chore was completed.
+export function completionPoints(entry) {
+  const positive = (value) => {
+    const points = Number(value);
+    return Number.isFinite(points) && points > 0 ? points : 0;
+  };
+  return positive(entry?.difficulty) + positive(entry?.bonus);
+}
+
 export function completionImpact(entry) {
   if (entry?.by === "service" || entry?.by === "reset") return "reset";
-  const effort = Number(entry?.difficulty);
-  const points = Number.isFinite(effort) && effort > 0 ? effort : 0;
-  return `+${points}${entry?.by === "joint" ? " each" : ""}`;
+  return `+${completionPoints(entry)}${entry?.by === "joint" ? " each" : ""}`;
 }

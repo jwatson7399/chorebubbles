@@ -9,6 +9,7 @@ The installable PWA runs full-screen from each phone and securely syncs shared s
 - Bubble field with gentle physics, drag to rearrange, tap to complete
 - Importance, difficulty, and goal frequency per chore
 - Last-done banners and complete per-chore activity histories
+- Heat and frost sigils showing each chore's recent track record, with bonus points for thawing neglected ones
 - Optional two-step chores with independently scored, alternating bubbles
 - Per-person rolling seven-active-day effort tallies with visible Getting started, Maintaining, and On top of it! zones
 - Full credit for both people on joint completions

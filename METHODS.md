@@ -488,6 +488,76 @@ Shuffle varied the plan within a fixed intensity.
 
 ---
 
+## 14. Chore temperature: showing a chore's track record, and paying to rescue cold ones
+
+**Objective.** The bubble field read a chore's *current* state well — bubbles swell with
+urgency, gain a hue-coloured border and glow past due, and breathe faster when badly overdue
+— but showed its *history* not at all. A reliable chore having one bad week and a chore the
+household had quietly abandoned looked identical the moment their urgency matched.
+
+**Methodology / data.** Three questions had to be settled before any pixels.
+
+*What does temperature measure?* Rejected blending in current urgency: overdue-right-now is
+already encoded three ways, so frost would have become a synonym for "big and glowing" —
+decoration rather than information. Temperature is computed from **completion history alone**,
+so a chore that has been reliable for two months but slipped this week stays warm. That is the
+honest reading, and it is also what makes the bonus defensible: it rewards rehabilitating a
+chronically neglected chore, not doing something that merely happens to be late today.
+
+*How long is the memory?* Measured in **cycles**, not days, which is what makes it fair across
+frequencies — five cycles of Dishes is five days, five cycles of Mop floors is ten weeks. Three
+cycles swung too fast (one miss visibly chilled a chore, so frost stopped meaning "chronically
+neglected"); eight to ten was so slow that an already-fixed chore stayed frosted for weeks,
+killing the reward loop. **Five** needs a genuine run of 3–4 misses to freeze and about the
+same to thaw. Below **3 scoreable cycles** the chore renders neutral — a new chore has no track
+record, and silence beats a confident-looking wrong signal.
+
+*What does it look like?* Three directions were mocked up against the real bubble gradient on
+the real background. **Rim and atmosphere** (desaturate, crystalline rim, slower breathing) was
+the most elegant but wrote into the outer halo, which is already spoken for — a past-due bubble
+glows in its own hue and a shuffle suggestion adds a yellow ring plus a second glow, so an
+overdue frozen suggested chore would carry three arguing glows. **Surface treatment** (frost
+facets, ember pooling in the fill) avoided that conflict. A **bare emoji sigil** was chosen:
+the bubble is untouched, and a 14px ❄️ / ❄️🥶 / 🔥 / 🔥🥵 sits top-right, clear of the points
+badge that compact bubbles carry bottom-right.
+
+**Results.** `src/choreTemperature.js` with 23 vitest cases; 116 tests pass and the build is
+clean. Verified end-to-end on the dev server against a seeded household with one chore
+engineered into each tier — all seven classified as designed, the bonus banked on the record,
+and deleting a bonus completion reversed all six points rather than only the base three.
+
+**Design rationale / notes.**
+- **The reward is a flat capped bonus, not a multiplier.** Two constraints ruled multipliers
+  out. Points are deliberately whole numbers (§1), and a ×1.5 reintroduces exactly the drifting
+  decimals that model was built to remove. And with a default goal of 14 and difficulty capped
+  at 5, a naive ×3 pays 15 — one tap clearing an entire week. Cold pays +1 (+2 at importance
+  ≥ 4); frozen pays +2 (+3 at importance ≥ 4).
+- **The bonus is advertised before the tap, not revealed after.** A reward you only discover
+  afterwards is a pleasant surprise once and motivates nothing thereafter; the point is that a
+  frozen bubble should look *worth attacking*.
+- **It is banked on the completion record, not recomputed.** Points already earned must not
+  shift because the chore warmed up later. `normalizeData` spreads unknown fields through
+  (§10), so older bundles preserve `bonus` rather than dropping it. The key is omitted entirely
+  when zero, leaving ordinary records byte-identical to before.
+- **Farming is structurally unprofitable**, not defended against. Freezing a chore costs at
+  least three missed cycles at `difficulty` each; the bonus pays back at most 3. This is a
+  direct consequence of the five-cycle memory — a shorter window would have made it farmable.
+- **Service and board-reset completions count as done.** They earn no effort credit, but the
+  chore genuinely got done, matching what `lastDone` and `urgencyOf` already believe.
+- **Intervals are scored against the chore's *current* `freqDays`**, so tightening a frequency
+  retroactively re-judges history. The alternative is snapshotting frequency onto every
+  completion record, which is not worth the storage or the complexity.
+- **Known imprecision:** `effortGoal.js` derives its presets from raw chore demand and knows
+  nothing about bonus points, so a household that thaws frequently runs marginally easy against
+  its goal. Bounded at +3 and rare by construction, the drift is small — but it is real, and
+  the goal number is not exact.
+- **A first rescue does not thaw the bubble.** Completing a long-frozen chore closes an
+  interval that was itself a miss, so the sigil persists until the chore sustains a run. This
+  is correct and deliberate, but the completion toast currently says "thawed!", which
+  overpromises against what the board then shows.
+
+---
+
 ## Engineering practice notes
 
 - **Pure logic is extracted and unit-tested.** Scoring (`logModel.js`) and drag physics (`bubblePhysics.js`) live in standalone modules with vitest coverage (`npm test`); the React component consumes them. This keeps the testable rules independent of the UI.

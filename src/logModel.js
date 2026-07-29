@@ -69,10 +69,16 @@ export function effectiveAge(pauses, who, eventTime, at) {
   return at - eventTime - pausedDuration(pauses, ["house", who], eventTime, at);
 }
 
+function positivePoints(value) {
+  const points = Number(value);
+  return Number.isFinite(points) && points > 0 ? points : 0;
+}
+
 function completionCredit(completion, who) {
   if (completion.by !== who && completion.by !== "joint") return 0;
-  const effort = Number(completion.difficulty);
-  return Number.isFinite(effort) && effort > 0 ? effort : 0;
+  // A thaw bonus is stored on the record when it is earned, so past effort keeps its
+  // value even after the chore warms back up.
+  return positivePoints(completion.difficulty) + positivePoints(completion.bonus);
 }
 
 export function pointsInActivePeriod(completions, who, pauses, at, periodIndex) {

@@ -37,8 +37,10 @@ import {
   choreHistoryFor,
   completionActor,
   completionImpact,
+  completionPoints,
   lastDoneLabel,
 } from "./choreHistory.js";
+import { choreTemperature, thawBonus } from "./choreTemperature.js";
 import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
 import { bubbleHitDiameter, rankBubbleTargets, usesCompactBubbleLabel } from "./bubblePresentation.js";
 import { creditedCompletionIds, shouldPulseHealth } from "./healthPulse.js";
@@ -209,6 +211,7 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
         importance: ch.importance,
         urgency: urgencyOf(ch, completions, pauses),
         ageDays: activeDaysSinceDone(ch, completions, pauses),
+        temp: choreTemperature(ch, completions, pauses, now()),
         hue: bubbleHue(i),
       })),
       baseR
@@ -232,7 +235,7 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
     const ring = Math.min(size.w, size.h) * 0.32;
     const next = targets.map((t, i) => {
       const p = prev.get(t.id);
-      if (p) return Object.assign(p, { r: t.r, chore: t.chore, urgency: t.urgency, prominence: t.prominence, priority: t.priority, focusX: t.focusX, focusY: t.focusY, hue: t.hue });
+      if (p) return Object.assign(p, { r: t.r, chore: t.chore, urgency: t.urgency, temp: t.temp, prominence: t.prominence, priority: t.priority, focusX: t.focusX, focusY: t.focusY, hue: t.hue });
       // New bubbles enter near their priority orbit instead of stacking.
       const angle = (i / Math.max(count, 1)) * Math.PI * 2;
       return {
@@ -362,13 +365,16 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
         const compactLabel = usesCompactBubbleLabel(n.r);
         const hitDiameter = bubbleHitDiameter(n.r);
         const showInlineLabel = n.r >= 14;
+        // Below the inline-label threshold the bubble is roughly 28px across, too small
+        // to carry an emoji pair legibly.
+        const sigil = showInlineLabel ? n.temp?.sigil : "";
         const bubbleShadow = due
           ? `0 0 ${overdue ? 26 : 14}px ${n.hue}${overdue ? "AA" : "66"}, inset 0 0 12px rgba(255,255,255,0.25)`
           : "inset 0 0 10px rgba(255,255,255,0.18)";
         return (
           <div
             key={n.id}
-            aria-label={`${n.chore.name}, ${n.chore.difficulty} point${n.chore.difficulty === 1 ? "" : "s"}${suggested ? ", suggested chore" : ""}`}
+            aria-label={`${n.chore.name}, ${n.chore.difficulty} point${n.chore.difficulty === 1 ? "" : "s"}${n.temp?.label ? `, ${n.temp.label}` : ""}${suggested ? ", suggested chore" : ""}`}
             data-label-mode={!showInlineLabel ? "hidden" : compactLabel ? "compact" : "full"}
             onPointerDown={(e) => onPointerDown(e, n)}
             onPointerMove={(e) => onPointerMove(e, n)}
@@ -419,6 +425,24 @@ function BubbleField({ chores, completions, pauses, onTap, popId, simDays, sugge
             >
               {popId === n.id && (
                 <span style={{ position: "absolute", top: -14, right: -6, fontSize: 20, animation: "sparkleUp 0.9s ease-out forwards", pointerEvents: "none" }}>✨</span>
+              )}
+              {sigil && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    top: "5%",
+                    right: "7%",
+                    fontSize: Math.max(9, Math.min(n.r * 0.28, 15)),
+                    lineHeight: 1,
+                    letterSpacing: "-0.22em",
+                    whiteSpace: "nowrap",
+                    filter: "drop-shadow(0 1px 1.5px rgba(0,0,0,0.5))",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {sigil}
+                </span>
               )}
               {showInlineLabel && (
                 <div
@@ -1265,6 +1289,9 @@ export default function ChoreBubbles() {
     // "when" lets you backdate a chore you forgot to log (e.g. done yesterday).
     const ts = now() - tapWhenDays * DAY;
     const twoStep = isTwoStepChore(chore);
+    // The bonus is banked on the record now, so the points stand even after the chore
+    // warms back up and stops looking like a rescue.
+    const bonus = thawBonus(chore, choreTemperature(chore, view.completions, pauses, now()).tier);
     const comp = {
       id: uid(),
       choreId: chore.id,
@@ -1272,6 +1299,7 @@ export default function ChoreBubbles() {
       difficulty: chore.difficulty,
       by,
       ts,
+      ...(bonus > 0 ? { bonus } : {}),
       ...(twoStep ? { twoStepIndex: chore.twoStep.active } : {}),
     };
     const operation = twoStep
@@ -1286,7 +1314,8 @@ export default function ChoreBubbles() {
     const who = by === "joint" ? "together" : by === "a" ? view.settings.nameA : view.settings.nameB;
     const when = tapWhenDays === 0 ? "" : tapWhenDays === 1 ? " (yesterday)" : ` (${tapWhenDays}d ago)`;
     const nextStep = twoStep ? advanceTwoStepChore(chore).name : "";
-    showToast(`${chore.name} done ${by === "joint" ? "" : "by "}${who}${when}${nextStep ? ` · ${nextStep} is up next` : ""}`, () => {
+    const thawed = bonus > 0 ? ` · thawed! +${bonus} bonus` : "";
+    showToast(`${chore.name} done ${by === "joint" ? "" : "by "}${who}${when}${thawed}${nextStep ? ` · ${nextStep} is up next` : ""}`, () => {
       commit(twoStep
         ? { type: "completion:remove-and-restore", ids: [comp.id], chore }
         : { type: "completion:remove", ids: [comp.id] });
@@ -1457,6 +1486,10 @@ export default function ChoreBubbles() {
   );
   const editChoreHistory = editChore?.id ? choreHistories.get(editChore.id) || [] : [];
   const tapChoreHistory = tapChore?.id ? choreHistories.get(tapChore.id) || [] : [];
+  const tapChoreTemp = tapChore?.id ? choreTemperature(tapChore, view.completions, pauses, now()) : null;
+  // Advertised before the tap, not revealed after it — a frozen bubble should look
+  // worth attacking.
+  const tapChoreBonus = tapChore?.id ? thawBonus(tapChore, tapChoreTemp.tier) : 0;
   const unseenOtherActivity = me && markerOwner === me && simDays === 0
     ? unseenCompletions(view.completions, me, seenThrough)
     : [];
@@ -1831,7 +1864,7 @@ export default function ChoreBubbles() {
                 </div>
               </div>
               <div style={{ fontSize: 13, color: c.by === "service" || c.by === "reset" ? "#7FA3AC" : "#5FE0BB", fontWeight: 700, whiteSpace: "nowrap" }}>
-                {c.by === "service" || c.by === "reset" ? "reset" : `+${c.difficulty}${c.by === "joint" ? " each" : ""}`}
+                {completionImpact(c)}
               </div>
               <button
                 onClick={() => removeCompletion(c)}
@@ -2138,7 +2171,7 @@ export default function ChoreBubbles() {
               <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", borderBottom: "1px solid #1A3542" }}>
                 <span aria-hidden="true" style={{ color: "#5FE0BB" }}>✓</span>
                 <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600 }}>{entry.choreName || "Chore"}</span>
-                <span style={{ color: "#5FE0BB", fontSize: 12.5, fontWeight: 800 }}>{Number(entry.difficulty) || 0} pts</span>
+                <span style={{ color: "#5FE0BB", fontSize: 12.5, fontWeight: 800 }}>{completionPoints(entry)} pts</span>
               </div>
             ))}
             {activitySummary.completions.length > 12 && (
@@ -2246,6 +2279,16 @@ export default function ChoreBubbles() {
           <div style={{ fontSize: 13, color: "#7FA3AC", margin: "4px 0 16px" }}>
             Last done {timeAgo(lastDone(tapChore, view.completions))} · worth {tapChore.difficulty} pts
           </div>
+          {tapChoreBonus > 0 && (
+            <div style={{ margin: "-8px 0 16px", padding: "10px 13px", background: "#102733", border: "1px solid #2A5F7A", borderRadius: 12, fontSize: 13.5, color: "#BFE4F5", display: "flex", alignItems: "center", gap: 9 }}>
+              <span aria-hidden="true" style={{ fontSize: 17, letterSpacing: "-0.22em", whiteSpace: "nowrap", flexShrink: 0 }}>{tapChoreTemp.sigil}</span>
+              <span>
+                This one has {tapChoreTemp.tier === "frozen" ? "frozen over" : "gone cold"} — thaw it for{" "}
+                <strong style={{ color: "#5FE0BB" }}>+{tapChoreBonus} bonus</strong>, worth{" "}
+                <strong style={{ color: "#5FE0BB" }}>{tapChore.difficulty + tapChoreBonus} pts</strong> in total.
+              </span>
+            </div>
+          )}
           {tapChore.details && (
             <div style={{ margin: "0 0 16px", padding: "11px 13px", background: "#102733", border: "1px solid #1A3B49", borderRadius: 12, color: "#E8F3F4", fontSize: 13.5, lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
               {tapChore.details}
@@ -2288,6 +2331,15 @@ export default function ChoreBubbles() {
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "#7FA3AC" }}>Timing</span><strong>{choreTimingLabel(tapChore, view.completions, pauses)}</strong></div>
                 {tapChoreHistory[0] && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "#7FA3AC" }}>Last done</span><strong>✓ {timeAgo(tapChoreHistory[0].ts)}</strong></div>}
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "#7FA3AC" }}>Value</span><strong>worth {tapChore.difficulty} pts</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                  <span style={{ color: "#7FA3AC" }}>Track record</span>
+                  <strong>
+                    {tapChoreTemp.ratio == null
+                      ? "Too new to judge"
+                      : `${tapChoreTemp.onTime} of last ${tapChoreTemp.scored} on time`}
+                    {tapChoreTemp.sigil ? <span style={{ letterSpacing: "-0.22em", marginLeft: 6 }}>{tapChoreTemp.sigil}</span> : null}
+                  </strong>
+                </div>
                 {tapChoreHistory[0] && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "#7FA3AC" }}>Who</span><strong>{completionActor(tapChoreHistory[0], settings)}</strong></div>}
               </div>
               <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 14.5, fontWeight: 700, marginBottom: 6 }}>Recent history</div>

@@ -31,6 +31,16 @@ describe("rolling effort points", () => {
     expect(weeklyPoints(completions, "b", [], AT)).toBe(3);
   });
 
+  it("credits a stored thaw bonus on top of the chore's effort", () => {
+    expect(weeklyPoints([completion({ difficulty: 3, bonus: 2 })], "a", [], AT)).toBe(5);
+  });
+
+  it("pays a thaw bonus to both people on a joint completion", () => {
+    const completions = [completion({ by: "joint", difficulty: 2, bonus: 3 })];
+    expect(weeklyPoints(completions, "a", [], AT)).toBe(5);
+    expect(weeklyPoints(completions, "b", [], AT)).toBe(5);
+  });
+
   it("excludes service, reset, and future events", () => {
     const completions = [
       completion({ by: "service" }),

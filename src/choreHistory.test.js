@@ -32,4 +32,10 @@ describe("chore history", () => {
     expect(completionImpact({ by: "service", difficulty: 3 })).toBe("reset");
     expect(completionImpact({ by: "joint", difficulty: 3 })).toBe("+3 each");
   });
+
+  it("folds a stored thaw bonus into the points shown", () => {
+    expect(completionImpact({ by: "a", difficulty: 2, bonus: 3 })).toBe("+5");
+    expect(completionImpact({ by: "joint", difficulty: 2, bonus: 1 })).toBe("+3 each");
+    expect(completionImpact({ by: "service", difficulty: 2, bonus: 3 })).toBe("reset");
+  });
 });
