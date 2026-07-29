@@ -623,7 +623,7 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
         <button
           type="button"
           onClick={onAddCelebrity}
-          aria-label="Add celebrity bubble"
+          aria-label="Add celebrity chore"
           style={{
             position: "absolute",
             right: 14,
@@ -645,7 +645,7 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
         >
           <span style={{ width: 52, fontSize: 9, lineHeight: 1.08, fontWeight: 700 }}>
             <strong style={{ display: "block", fontSize: 17, lineHeight: 1 }}>+</strong>
-            celebrity bubble
+            celebrity chore
           </span>
         </button>
       )}
