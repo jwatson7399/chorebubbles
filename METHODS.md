@@ -341,6 +341,13 @@ and lets coverage drive again — Balanced now means exactly half a fair share a
 it. The guarantee is unchanged in kind: green 19 still clears the 13.4 a household could
 earn on one-point chores alone.
 
+**The floor is not capped, deliberately.** Adding daily one-point chores drives the
+ceiling up and the goal with it — one extra takes coverage to 55%, four takes it to 92%.
+Capping the floor as a fraction of the fair share was measured and rejected: the guarantee
+is `green > ceiling`, so once trivia can earn 41 pts/week, any cap that holds the goal near
+50% necessarily lets padding reach green again. Between a stable number and a goal that
+cannot be gamed, the household chose the guarantee.
+
 **A single daily one-point chore dominates the ceiling.** Reset Couch alone is 7.0 of the
 13.4, because daily frequency gives it seven chances a week. The ceiling is therefore very
 sensitive to adding quick daily chores, and a second one would raise it by another ~7 and
@@ -349,6 +356,23 @@ should not end up dictating the goal.
 
 Applying a preset dismisses the nudge against the *default* suggestion rather than the
 chosen preset, so picking Spotless does not leave the nudge showing forever.
+
+**A fourth "Custom" option.** Presets sit alongside a Custom entry — first in the row on
+The Log, first card on the Chores tab — which is where the fine-tune steppers now live.
+The steppers used to sit permanently below the presets under a "Fine-tune" caption, which
+made hand-tuned numbers look like a footnote rather than a choice.
+
+Custom is **derived, not stored**: it means the household's numbers match no preset. A
+stored mode would need a migration for households that set a goal before presets existed,
+and could disagree with the actual settings — still reading "Balanced" after a stepper
+moved. Nudging a stepper therefore flips the badge to Custom on both screens with no
+bookkeeping. Tapping Custom on The Log opens the Chores tab with the steppers revealed,
+since that is the only surface where tuning happens.
+
+The padding floor governs the presets, not Custom: a household tuning by hand may set
+green wherever it likes, but a warning appears below the steppers once green drops to or
+below the padding ceiling. Blocking it would be paternalistic; saying nothing would hide
+the exact failure this feature exists to prevent.
 
 **A shortcut on The Log.** Living only at the bottom of the Chores tab made the presets
 feel buried, so `GoalPresetBar` replaces the static "Full scale / Green starts at" caption

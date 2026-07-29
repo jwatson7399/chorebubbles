@@ -159,6 +159,19 @@ export function goalPresetOptions(chores) {
   return options.every(Boolean) ? options : null;
 }
 
+export const CUSTOM_GOAL_ID = "custom";
+
+// Deliberately derived rather than stored: "custom" just means the household's numbers
+// match no preset. Storing a mode would let the badge disagree with the actual settings
+// — say, still reading "Balanced" after someone nudged a stepper — and would need a
+// migration for the households that set their goal before presets existed.
+export function activeGoalId(presets, scale, green) {
+  const match = (presets || []).find(
+    (preset) => preset.scale === Number(scale) && preset.green === Number(green)
+  );
+  return match ? match.id : CUSTOM_GOAL_ID;
+}
+
 export function isGoalStale(currentGreen, suggestion) {
   if (!suggestion) return false;
   const green = Number(currentGreen);

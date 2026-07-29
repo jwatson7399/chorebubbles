@@ -21,7 +21,7 @@ import {
   setGoalNudgeDismissed,
   isSynced,
 } from "./storage.js";
-import { suggestEffortGoal, goalPresetOptions, shouldShowGoalNudge } from "./effortGoal.js";
+import { suggestEffortGoal, goalPresetOptions, shouldShowGoalNudge, activeGoalId, CUSTOM_GOAL_ID } from "./effortGoal.js";
 import {
   bothStreak,
   effortZone,
@@ -520,12 +520,32 @@ const btnStyle = (bg, color = "#0C1B26") => ({
 // Deliberately green (the green-zone colour) where the suggestion intensity picker is
 // amber: these pills change a shared household setting, those change only what this
 // phone is being offered tonight, and the two sit close together on The Log.
-function GoalPresetBar({ presets, suggestion, scale, green, onPick, expanded, onToggle }) {
+function GoalPresetBar({ presets, suggestion, scale, green, activeId, onPick, onCustom, expanded, onToggle }) {
   return (
     <div style={{ padding: "2px 0 12px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <button
+          onClick={onCustom}
+          aria-pressed={activeId === CUSTOM_GOAL_ID}
+          aria-label="Custom — fine-tune the goal yourself"
+          style={{
+            flex: 1,
+            background: activeId === CUSTOM_GOAL_ID ? "#5FE0BB" : "transparent",
+            color: activeId === CUSTOM_GOAL_ID ? "#08221C" : "#9FBCC4",
+            border: `1px solid ${activeId === CUSTOM_GOAL_ID ? "#5FE0BB" : "#2C5563"}`,
+            borderRadius: 999,
+            padding: "4px 4px",
+            fontFamily: "'Baloo 2', sans-serif",
+            fontSize: 11.5,
+            fontWeight: 600,
+            cursor: "pointer",
+            WebkitTapHighlightColor: "transparent",
+          }}
+        >
+          Custom
+        </button>
         {presets.map((option) => {
-          const active = scale === option.scale && green === option.green;
+          const active = activeId === option.id;
           return (
             <button
               key={option.id}
@@ -909,6 +929,9 @@ export default function ChoreBubbles() {
   // resets on reopen and is never synced to the other phone.
   const [intensity, setIntensity] = useState(DEFAULT_INTENSITY);
   const [goalDetailsOpen, setGoalDetailsOpen] = useState(false);
+  // Whether the steppers are on screen. Local, because it is a "show me the knobs"
+  // request rather than a household setting.
+  const [fineTuneOpen, setFineTuneOpen] = useState(false);
   const [bubbleSuggestionsVisible, setBubbleSuggestionsVisible] = useState(false);
   const [healthPulse, setHealthPulse] = useState(0);
   const prevHealthRef = useRef(null);
@@ -1691,7 +1714,9 @@ export default function ChoreBubbles() {
                 suggestion={goalSuggestion}
                 scale={goal}
                 green={greenMin}
+                activeId={activeGoalId(goalPresets, goal, greenMin)}
                 onPick={applyGoalSuggestion}
+                onCustom={() => { setFineTuneOpen(true); setTab("chores"); }}
                 expanded={goalDetailsOpen}
                 onToggle={() => setGoalDetailsOpen((open) => !open)}
               />
@@ -1908,6 +1933,38 @@ export default function ChoreBubbles() {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+                {(() => {
+                  const activeId = activeGoalId(goalPresets, settings.weeklyGoal, greenMin);
+                  const active = activeId === CUSTOM_GOAL_ID;
+                  return (
+                    <button
+                      onClick={() => setFineTuneOpen((open) => !open)}
+                      aria-pressed={active}
+                      aria-expanded={fineTuneOpen || active}
+                      style={{
+                        textAlign: "left",
+                        background: active ? "#123B3A" : "#0F2530",
+                        border: `1px solid ${active ? "#5FE0BB" : "#1E4152"}`,
+                        borderRadius: 14,
+                        padding: "12px 14px",
+                        cursor: "pointer",
+                        WebkitTapHighlightColor: "transparent",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
+                        <span style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 15.5, fontWeight: 700, color: active ? "#5FE0BB" : "#E6F2F5" }}>
+                          Custom{active ? " ✓" : ""}
+                        </span>
+                        <span style={{ fontSize: 12.5, color: active ? "#5FE0BB" : "#9FD4EA", whiteSpace: "nowrap" }}>
+                          {active ? `green ${greenMin} · bar ${settings.weeklyGoal}` : (fineTuneOpen ? "hide" : "set your own")}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#7FA3AC", marginTop: 3 }}>
+                        Tune the numbers yourself.
+                      </div>
+                    </button>
+                  );
+                })()}
                 {goalPresets.map((option) => {
                   const active = settings.weeklyGoal === option.scale && greenMin === option.green;
                   return (
@@ -1946,20 +2003,26 @@ export default function ChoreBubbles() {
                 </div>
               )}
 
-              <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "14px 0 2px" }}>
-                Fine-tune
-              </div>
             </>
           ) : (
             <div style={{ color: "#7FA3AC", fontSize: 12, margin: "6px 0 2px" }}>
               Add some chores and the app will suggest a goal that matches them.
             </div>
           )}
-          <Stepper label="Effort scale (full bar)" value={settings.weeklyGoal} min={4} max={40} onChange={(v) => commit({ type: "settings:patch", patch: { weeklyGoal: v, greenStart: Math.min(greenMin, v) } })} />
-          <Stepper label="Green zone starts at" value={greenMin} min={2} max={settings.weeklyGoal} onChange={(v) => commit({ type: "settings:patch", patch: { greenStart: v } })} format={(v) => `${v} pts`} />
-          <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "-4px 0 8px" }}>
-            Land in the green by reaching {greenMin} of {settings.weeklyGoal} points. The full bar is a reference, not a cutoff.
-          </div>
+          {(!goalPresets || fineTuneOpen || activeGoalId(goalPresets, settings.weeklyGoal, greenMin) === CUSTOM_GOAL_ID) && (
+            <>
+              <Stepper label="Effort scale (full bar)" value={settings.weeklyGoal} min={4} max={40} onChange={(v) => commit({ type: "settings:patch", patch: { weeklyGoal: v, greenStart: Math.min(greenMin, v) } })} />
+              <Stepper label="Green zone starts at" value={greenMin} min={2} max={settings.weeklyGoal} onChange={(v) => commit({ type: "settings:patch", patch: { greenStart: v } })} format={(v) => `${v} pts`} />
+              <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "-4px 0 8px" }}>
+                Land in the green by reaching {greenMin} of {settings.weeklyGoal} points. The full bar is a reference, not a cutoff.
+              </div>
+              {goalSuggestion && greenMin <= goalSuggestion.paddingCeiling && (
+                <div style={{ color: "#FFC65E", fontSize: 11.5, lineHeight: 1.5, margin: "0 0 8px" }}>
+                  ⚠ Below {Math.ceil(goalSuggestion.paddingCeiling) + 1}, green can be reached with quick, low-importance chores alone. The presets never go there.
+                </div>
+              )}
+            </>
+          )}
 
           <div style={{ marginTop: 26, fontFamily: "'Baloo 2', sans-serif", fontSize: 16, fontWeight: 600 }}>Household settings</div>
           <NameEditor settings={settings} onSave={(nameA, nameB) => commit({ type: "settings:patch", patch: { nameA, nameB } })} />

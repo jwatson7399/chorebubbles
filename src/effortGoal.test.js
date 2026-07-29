@@ -8,6 +8,8 @@ import {
   GOAL_PRESETS,
   isGoalStale,
   shouldShowGoalNudge,
+  activeGoalId,
+  CUSTOM_GOAL_ID,
 } from "./effortGoal.js";
 
 const chore = (patch) => ({ importance: 3, difficulty: 2, freqDays: 7, ...patch });
@@ -270,5 +272,31 @@ describe("shouldShowGoalNudge", () => {
 
   it("stays hidden once the threshold is back in range", () => {
     expect(shouldShowGoalNudge(18, suggestion, 0)).toBe(false);
+  });
+});
+
+describe("activeGoalId", () => {
+  const presets = [
+    { id: "balanced", scale: 29, green: 19 },
+    { id: "tidy", scale: 36, green: 24 },
+    { id: "spotless", scale: 40, green: 30 },
+  ];
+
+  it("names the preset whose numbers match exactly", () => {
+    expect(activeGoalId(presets, 29, 19)).toBe("balanced");
+    expect(activeGoalId(presets, 40, 30)).toBe("spotless");
+  });
+
+  it("falls to custom when either number differs", () => {
+    expect(activeGoalId(presets, 29, 20)).toBe(CUSTOM_GOAL_ID);
+    expect(activeGoalId(presets, 30, 19)).toBe(CUSTOM_GOAL_ID);
+  });
+
+  it("is custom when there are no presets to match", () => {
+    expect(activeGoalId(null, 29, 19)).toBe(CUSTOM_GOAL_ID);
+  });
+
+  it("accepts string settings without reporting a false custom", () => {
+    expect(activeGoalId(presets, "29", "19")).toBe("balanced");
   });
 });
