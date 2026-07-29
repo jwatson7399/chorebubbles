@@ -1,141 +1,135 @@
 import { describe, expect, it } from "vitest";
 import {
-  CYCLE_WINDOW,
-  MIN_SCORED_CYCLES,
-  choreCycleResults,
+  STREAK_MAX,
+  STREAK_MIN,
+  choreStreak,
   choreTemperature,
+  streakLabel,
   thawBonus,
 } from "./choreTemperature.js";
 
 const DAY = 86400000;
-const START = 1_700_000_000_000;
+const NOW = 1_700_000_000_000;
+const at = (days = 0) => NOW - days * DAY;
 
-// Builds a chore whose completions land on the given day offsets from START.
-const choreOn = (days, { freqDays = 1, importance = 3, id = "c1" } = {}) => ({
-  chore: { id, freqDays, importance, createdAt: START },
-  completions: days.map((day, index) => ({
-    id: `${id}-${index}`,
-    choreId: id,
-    by: "a",
-    ts: START + day * DAY,
-  })),
+// A chore plus completions, both described in "days ago".
+const build = (completionDays, { freqDays = 3, importance = 3, createdDays = 30 } = {}) => ({
+  chore: { id: "c1", freqDays, importance, createdAt: at(createdDays) },
+  completions: completionDays.map((day, i) => ({ id: `c${i}`, choreId: "c1", by: "a", ts: at(day) })),
 });
 
-describe("scoring cycles", () => {
-  it("scores an interval on time when it fits inside the chore's frequency", () => {
-    const { chore, completions } = choreOn([1, 2, 3], { freqDays: 1 });
-    expect(choreCycleResults(chore, completions, [], START + 3 * DAY)).toEqual([true, true, true]);
+const streakOf = (completionDays, opts = {}, evaluatedAt = 0) => {
+  const { chore, completions } = build(completionDays, opts);
+  return choreStreak(chore, completions, [], at(evaluatedAt));
+};
+
+describe("building a streak", () => {
+  it("starts a brand new chore at zero", () => {
+    expect(streakOf([], { createdDays: 1 })).toBe(0);
   });
 
-  it("scores an interval as missed when it runs past the chore's frequency", () => {
-    const { chore, completions } = choreOn([1, 5], { freqDays: 1 });
-    expect(choreCycleResults(chore, completions, [], START + 5 * DAY)).toEqual([true, false]);
+  it("counts one on-time completion as one step", () => {
+    expect(streakOf([1], { createdDays: 2 })).toBe(1);
   });
 
-  it("does not count a household pause against an interval", () => {
-    const { chore, completions } = choreOn([1, 6], { freqDays: 2 });
-    const pauses = [{ id: "p", scope: "house", start: START + 2 * DAY, end: START + 6 * DAY }];
-    expect(choreCycleResults(chore, completions, [], START + 6 * DAY)).toEqual([true, false]);
-    expect(choreCycleResults(chore, completions, pauses, START + 6 * DAY)).toEqual([true, true]);
+  it("counts two on-time completions in a row as two steps", () => {
+    expect(streakOf([2, 1], { createdDays: 3 })).toBe(2);
   });
 
-  it("counts the open interval as a miss once it passes the due date", () => {
-    const { chore, completions } = choreOn([1], { freqDays: 1 });
-    expect(choreCycleResults(chore, completions, [], START + 4 * DAY)).toEqual([true, false]);
+  it("holds at the ceiling however long the run continues", () => {
+    expect(streakOf([6, 5, 4, 3, 2, 1], { createdDays: 7 })).toBe(STREAK_MAX);
+  });
+});
+
+describe("losing a streak", () => {
+  it("drops one step for a single missed deadline instead of wiping the run", () => {
+    // Three on-time completions, then evaluated one full cycle past due.
+    expect(streakOf([9, 8, 7], { createdDays: 10 }, 2)).toBe(1);
   });
 
-  it("ignores the open interval while the chore is still inside its window", () => {
-    const { chore, completions } = choreOn([1], { freqDays: 3 });
-    expect(choreCycleResults(chore, completions, [], START + 2 * DAY)).toEqual([true]);
+  it("keeps stepping down as further deadlines pass", () => {
+    expect(streakOf([12, 11, 10], { createdDays: 13 }, 3)).toBe(0);
+    expect(streakOf([15, 14, 13], { createdDays: 16 }, 3)).toBe(-1);
   });
 
-  it("counts a cleaning service reset as the chore having been done", () => {
-    const { chore, completions } = choreOn([1, 2], { freqDays: 1 });
-    completions[1].by = "service";
-    expect(choreCycleResults(chore, completions, [], START + 2 * DAY)).toEqual([true, true]);
+  it("holds at the floor once a chore is thoroughly abandoned", () => {
+    expect(streakOf([], { createdDays: 90 })).toBe(STREAK_MIN);
+  });
+});
+
+describe("rescuing a cold chore", () => {
+  it("follows the full frozen, rescued, warm, hot, then gently cooling path", () => {
+    expect(streakOf([], { createdDays: 90, freqDays: 7 })).toBe(-2);
+    expect(streakOf([14], { createdDays: 90, freqDays: 7 }, 14)).toBe(0);
+    expect(streakOf([14, 7], { createdDays: 90, freqDays: 7 }, 7)).toBe(1);
+    expect(streakOf([14, 7, 0], { createdDays: 90, freqDays: 7 })).toBe(2);
+    expect(streakOf([14, 7, 0], { createdDays: 90, freqDays: 7 }, -8)).toBe(1);
   });
 
-  it("skips the first interval when the chore has no creation date to anchor it", () => {
-    const { chore, completions } = choreOn([200, 201], { freqDays: 1 });
+  it("clears the debt back to neutral when a neglected chore is finally done", () => {
+    // Untouched for a month, then done today: back to zero, not still frozen.
+    expect(streakOf([0], { createdDays: 30 })).toBe(0);
+  });
+
+  it("does not reward a late completion with a step up", () => {
+    // Two on-time completions, then one that ran a cycle late.
+    expect(streakOf([19, 18, 13], { createdDays: 20 }, 12)).toBe(1);
+  });
+
+  it("lets a rescued chore climb again from neutral", () => {
+    expect(streakOf([30, 3, 2, 1], { createdDays: 90 })).toBe(2);
+  });
+});
+
+describe("pauses", () => {
+  it("does not count deadlines that fell inside a household pause", () => {
+    const { chore, completions } = build([], { createdDays: 10 });
+    const pauses = [{ id: "p", scope: "house", start: at(9), end: at(1) }];
+    expect(choreStreak(chore, completions, [], NOW)).toBe(STREAK_MIN);
+    expect(choreStreak(chore, completions, pauses, NOW)).toBe(0);
+  });
+});
+
+describe("timeline guards", () => {
+  it("uses the first completion as the anchor when createdAt is missing", () => {
+    const { chore, completions } = build([2, 1], { createdDays: 3 });
     delete chore.createdAt;
-    expect(choreCycleResults(chore, completions, [], START + 201 * DAY)).toEqual([true]);
+    expect(choreStreak(chore, completions, [], NOW)).toBe(1);
   });
 
-  it("ignores completions belonging to other chores", () => {
-    const { chore, completions } = choreOn([1, 2], { freqDays: 1 });
-    const noise = { id: "x", choreId: "other", by: "a", ts: START + 1.5 * DAY };
-    expect(choreCycleResults(chore, [...completions, noise], [], START + 2 * DAY)).toEqual([true, true]);
+  it("ignores completions belonging to another chore", () => {
+    const { chore, completions } = build([2], { createdDays: 3 });
+    completions.push({ id: "other", choreId: "other", by: "a", ts: at(1) });
+    expect(choreStreak(chore, completions, [], NOW)).toBe(1);
   });
 });
 
-describe("temperature tiers", () => {
-  // Produces exactly `window` scored intervals, the first `misses` of them late.
-  const ramp = (misses, window = CYCLE_WINDOW) => {
-    const days = [];
-    let day = 0;
-    for (let i = 0; i < window; i++) {
-      day += i < misses ? 4 : 1;
-      days.push(day);
-    }
-    return { ...choreOn(days, { freqDays: 1 }), at: START + day * DAY };
+describe("tiers", () => {
+  const tierFor = (completionDays, opts, evaluatedAt) => {
+    const { chore, completions } = build(completionDays, opts);
+    return choreTemperature(chore, completions, [], at(evaluatedAt ?? 0));
   };
 
-  const tierAfter = (misses, window) => {
-    const { chore, completions, at } = ramp(misses, window);
-    return choreTemperature(chore, completions, [], at).tier;
-  };
-
-  it("reads a perfect record as scorching", () => {
-    expect(tierAfter(0)).toBe("scorching");
+  it("shows nothing at all for a chore with no streak either way", () => {
+    const temp = tierFor([], { createdDays: 1 });
+    expect(temp.tier).toBe("neutral");
+    expect(temp.sigil).toBe("");
   });
 
-  it("reads four of five on time as warm", () => {
-    expect(tierAfter(1)).toBe("warm");
+  it("gives one flame for one on-time completion", () => {
+    expect(tierFor([1], { createdDays: 2 }).sigil).toBe("🔥");
   });
 
-  it("reads three of five on time as neutral", () => {
-    expect(tierAfter(2)).toBe("neutral");
+  it("gives two flames for two in a row", () => {
+    expect(tierFor([2, 1], { createdDays: 3 }).sigil).toBe("🔥🥵");
   });
 
-  it("reads two of five on time as cold", () => {
-    expect(tierAfter(3)).toBe("cold");
+  it("gives one snowflake for a single missed cycle", () => {
+    expect(tierFor([15, 14, 13], { createdDays: 16 }, 3).sigil).toBe("❄️");
   });
 
-  it("reads one of five on time as frozen", () => {
-    expect(tierAfter(4)).toBe("frozen");
-  });
-
-  it("reads a total washout as frozen", () => {
-    expect(tierAfter(5)).toBe("frozen");
-  });
-
-  it("stays neutral until there are enough cycles to judge", () => {
-    expect(tierAfter(0, MIN_SCORED_CYCLES - 1)).toBe("neutral");
-    expect(tierAfter(0, MIN_SCORED_CYCLES)).toBe("scorching");
-  });
-
-  it("remembers only the most recent cycles", () => {
-    // Five early misses followed by five clean cycles reads as fully recovered.
-    const days = [4, 8, 12, 16, 20, 21, 22, 23, 24, 25];
-    const { chore, completions } = choreOn(days, { freqDays: 1 });
-    expect(choreTemperature(chore, completions, [], START + 25 * DAY).tier).toBe("scorching");
-  });
-
-  it("reports a neutral chore with no sigil to draw", () => {
-    const { chore, completions, at } = ramp(2);
-    expect(choreTemperature(chore, completions, [], at).sigil).toBe("");
-  });
-
-  it("gives cold and frozen distinct sigils", () => {
-    const { chore, completions, at } = ramp(3);
-    expect(choreTemperature(chore, completions, [], at).sigil).toBe("❄️");
-    const frozen = ramp(4);
-    expect(choreTemperature(frozen.chore, frozen.completions, [], frozen.at).sigil).toBe("❄️🥶");
-  });
-
-  it("treats a chore that has never been done as unjudged", () => {
-    const chore = { id: "new", freqDays: 7, importance: 3, createdAt: START };
-    expect(choreTemperature(chore, [], [], START + 90 * DAY).tier).toBe("neutral");
+  it("gives two snowflakes for an abandoned chore", () => {
+    expect(tierFor([], { createdDays: 90 }).sigil).toBe("❄️🥶");
   });
 });
 
@@ -162,5 +156,15 @@ describe("thaw bonus", () => {
         expect(thawBonus({ importance }, tier)).toBeLessThanOrEqual(3);
       }
     }
+  });
+});
+
+describe("describing a streak", () => {
+  it("names the bounded state without overstating a capped count", () => {
+    expect(streakLabel(2)).toBe("Hot streak");
+    expect(streakLabel(1)).toBe("Warm streak");
+    expect(streakLabel(0)).toBe("Neutral");
+    expect(streakLabel(-1)).toBe("Cold streak");
+    expect(streakLabel(-2)).toBe("Frozen streak");
   });
 });

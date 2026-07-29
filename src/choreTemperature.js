@@ -2,10 +2,11 @@ import { pausedDuration } from "./logModel.js";
 
 const DAY = 86400000;
 
-// Five cycles is long enough that frost means "chronically neglected" rather than
-// "slipped once", and short enough that fixing a chore pays off within a week or two.
-export const CYCLE_WINDOW = 5;
-export const MIN_SCORED_CYCLES = 3;
+// A chore carries one number: positive momentum from on-time completions, or
+// negative momentum from missed deadlines. Two steps in either direction is as
+// far as it goes, so the board reads at a glance instead of hoarding history.
+export const STREAK_MAX = 2;
+export const STREAK_MIN = -2;
 
 export const TEMPERATURE_TIERS = {
   scorching: { key: "scorching", sigil: "🔥🥵", label: "on a scorching streak" },
@@ -15,13 +16,15 @@ export const TEMPERATURE_TIERS = {
   frozen: { key: "frozen", sigil: "❄️🥶", label: "frozen over" },
 };
 
-function tierForRatio(ratio) {
-  if (ratio >= 1) return TEMPERATURE_TIERS.scorching;
-  if (ratio >= 0.8) return TEMPERATURE_TIERS.warm;
-  if (ratio > 0.4) return TEMPERATURE_TIERS.neutral;
-  if (ratio > 0.2) return TEMPERATURE_TIERS.cold;
-  return TEMPERATURE_TIERS.frozen;
-}
+const TIER_BY_STREAK = {
+  2: TEMPERATURE_TIERS.scorching,
+  1: TEMPERATURE_TIERS.warm,
+  0: TEMPERATURE_TIERS.neutral,
+  "-1": TEMPERATURE_TIERS.cold,
+  "-2": TEMPERATURE_TIERS.frozen,
+};
+
+const clampStreak = (value) => Math.max(STREAK_MIN, Math.min(STREAK_MAX, value));
 
 // Days between two moments, minus any household pause covering them — the same
 // adjustment activeDaysSinceDone makes, so a vacation never chills the board.
@@ -29,11 +32,15 @@ function activeDaysBetween(pauses, from, to) {
   return Math.max(0, (to - from - pausedDuration(pauses, ["house"], from, to)) / DAY);
 }
 
-// Whether each of a chore's cycles closed inside its frequency window, oldest first.
-// A cycle is the span between one completion and the next; resets by the cleaning
-// service still count as the chore having been done, matching lastDone and urgencyOf.
-export function choreCycleResults(chore, completions, pauses, at) {
-  if (!chore?.id) return [];
+// How many due dates went by unmet across a span. The first frequency window is
+// the chore's allowance; every window after it is another deadline missed.
+function missedDeadlines(days, freqDays) {
+  if (days <= freqDays) return 0;
+  return Math.ceil(days / freqDays) - 1;
+}
+
+export function choreStreak(chore, completions, pauses, at) {
+  if (!chore?.id) return 0;
   const freqDays = Math.max(Number(chore.freqDays) || 1, 0.25);
   const stamps = (completions || [])
     .filter((entry) => entry?.choreId === chore.id)
@@ -41,37 +48,42 @@ export function choreCycleResults(chore, completions, pauses, at) {
     .filter((ts) => Number.isFinite(ts) && ts <= at)
     .sort((a, b) => a - b);
 
-  // Without a creation date there is no honest start for the first cycle, so it goes
-  // unscored rather than being measured from the epoch and branded frozen instantly.
+  // Without a creation date there is no honest start for the first span, so the
+  // walk begins at the first completion rather than at the epoch.
   const createdAt = Number(chore.createdAt);
   const anchored = Number.isFinite(createdAt) && createdAt > 0;
   let previous = anchored ? createdAt : stamps[0];
-  if (previous == null) return [];
+  if (previous == null) return 0;
 
-  const results = [];
+  let streak = 0;
   for (const ts of stamps.slice(anchored ? 0 : 1)) {
-    results.push(activeDaysBetween(pauses, previous, ts) <= freqDays);
+    const missed = missedDeadlines(activeDaysBetween(pauses, previous, ts), freqDays);
+    // Each slipped deadline costs one step, so a long good record degrades
+    // gracefully rather than falling off a cliff after a single bad week.
+    streak = clampStreak(streak - missed);
+    // Finishing on time builds the run. Finishing late earns nothing, but it does
+    // clear the backlog — doing the thing always puts you back to level ground.
+    streak = missed === 0 ? clampStreak(streak + 1) : Math.max(streak, 0);
     previous = ts;
   }
 
-  // The open cycle cools the chore in real time once it runs late, but stays unscored
-  // while it is merely young — an unfinished chore is not yet a failed one.
-  if (activeDaysBetween(pauses, previous, at) > freqDays) results.push(false);
-
-  return results;
+  // Deadlines missed since the last completion count as they pass, so a bubble
+  // cools while it is being neglected rather than waiting to be dealt with.
+  const openMissed = missedDeadlines(activeDaysBetween(pauses, previous, at), freqDays);
+  return clampStreak(streak - openMissed);
 }
 
 export function choreTemperature(chore, completions, pauses, at) {
-  const cycles = choreCycleResults(chore, completions, pauses, at).slice(-CYCLE_WINDOW);
-  const onTime = cycles.filter(Boolean).length;
+  const streak = choreStreak(chore, completions, pauses, at);
+  return { ...TIER_BY_STREAK[streak], tier: TIER_BY_STREAK[streak].key, streak };
+}
 
-  if (cycles.length < MIN_SCORED_CYCLES) {
-    return { ...TEMPERATURE_TIERS.neutral, tier: "neutral", ratio: null, scored: cycles.length, onTime };
-  }
-
-  const ratio = onTime / cycles.length;
-  const tier = tierForRatio(ratio);
-  return { ...tier, tier: tier.key, ratio, scored: cycles.length, onTime };
+export function streakLabel(streak) {
+  if (streak >= STREAK_MAX) return "Hot streak";
+  if (streak === 1) return "Warm streak";
+  if (streak <= STREAK_MIN) return "Frozen streak";
+  if (streak === -1) return "Cold streak";
+  return "Neutral";
 }
 
 // A flat, capped bonus rather than a multiplier: points stay whole numbers, and no

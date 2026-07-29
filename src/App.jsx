@@ -40,7 +40,7 @@ import {
   completionPoints,
   lastDoneLabel,
 } from "./choreHistory.js";
-import { choreTemperature, thawBonus } from "./choreTemperature.js";
+import { choreTemperature, streakLabel, thawBonus } from "./choreTemperature.js";
 import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
 import { bubbleHitDiameter, rankBubbleTargets, usesCompactBubbleLabel } from "./bubblePresentation.js";
 import { creditedCompletionIds, shouldPulseHealth } from "./healthPulse.js";
@@ -2334,10 +2334,8 @@ export default function ChoreBubbles() {
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                   <span style={{ color: "#7FA3AC" }}>Track record</span>
                   <strong>
-                    {tapChoreTemp.ratio == null
-                      ? "Too new to judge"
-                      : `${tapChoreTemp.onTime} of last ${tapChoreTemp.scored} on time`}
-                    {tapChoreTemp.sigil ? <span style={{ letterSpacing: "-0.22em", marginLeft: 6 }}>{tapChoreTemp.sigil}</span> : null}
+                    {streakLabel(tapChoreTemp.streak)}
+                    {tapChoreTemp.sigil ? <span style={{ letterSpacing: "-0.22em", marginLeft: 6, whiteSpace: "nowrap" }}>{tapChoreTemp.sigil}</span> : null}
                   </strong>
                 </div>
                 {tapChoreHistory[0] && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span style={{ color: "#7FA3AC" }}>Who</span><strong>{completionActor(tapChoreHistory[0], settings)}</strong></div>}

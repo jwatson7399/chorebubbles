@@ -1,54 +1,38 @@
 # Chore temperature — heat and frost signatures on bubbles
 
 **Date:** 2026-07-29
-**Status:** Approved, ready to implement
+**Status:** Implemented; streak model revised after browser verification
 
 ## Problem
 
-The bubble field shows a chore's *current* state well: bubbles swell with urgency, gain a
-coloured border and glow once past due, and breathe faster when badly overdue. It shows a
-chore's *history* not at all. You cannot tell, at a glance, the difference between a reliable
-chore having one bad week and a chore the household has quietly given up on — they look
-identical the moment their urgency matches.
+The bubble field shows a chore's *current urgency* well: bubbles swell as they become due,
+gain a coloured border and glow once past due, and breathe faster when badly overdue. It
+does not show whether the household is sustaining or losing the chore's rhythm.
 
 Add a visual layer that reads a chore's track record, and pay a bonus for rehabilitating the
 ones that have gone cold.
 
 ## Decisions
 
-### Temperature measures history, not current state
+### Temperature is a bounded streak
 
-Temperature is computed from completion history alone. It deliberately does **not** blend in
-current urgency.
+Temperature is one derived number per chore, capped from `-2` to `+2`. It is rebuilt from
+the creation date, completions, household pauses, and the current time; no streak field is
+stored.
 
-Overdue-right-now is already encoded three ways on the bubble (size, border, glow), so
-folding it into temperature would make frost a synonym for "big and glowing" — decoration
-rather than information. Keeping the axes separate means a chore that has been reliable for
-two months but slipped this week stays warm, which is the honest reading: it is a good chore
-having a bad week.
+- An on-time completion adds one step.
+- Each frequency window that passes without completion removes one step.
+- The downward side decrements rather than snapping to zero, so one miss cools a long good
+  run from `+2` to `+1` instead of erasing it.
+- Completing a cold or frozen chore late adds no heat, but resets the negative streak to
+  neutral. The rescue therefore causes an immediate visual change.
+- After rescue, one on-time completion becomes warm and two become scorching.
 
-This also gives the bonus a defensible story. It rewards rehabilitating a chronically
-neglected chore, not doing something that merely happens to be late today — the latter would
-be trivially farmed by letting an easy daily chore slip a single day.
-
-### Memory is five cycles, with a three-cycle floor
-
-Measured in **cycles** rather than days, which is what makes it fair across chores of
-different frequencies: five cycles of Dishes is five days, five cycles of Mop floors is ten
-weeks, and each is "the recent past" for that chore.
-
-Five was chosen over shorter and longer alternatives:
-
-- **3 cycles** swings too fast. One miss visibly chills a chore and one good week fully
-  reheats it, so frost stops meaning "chronically neglected" and Dishes flickers constantly.
-- **5 cycles** needs a genuine run of 3–4 misses to look properly frozen and about the same
-  to thaw. Frost becomes a statement about a chore's character.
-- **8–10 cycles** is so slow that a chore you have *already fixed* stays frosted for weeks,
-  which feels unfair and kills the reward loop.
-
-Below **3 scoreable cycles** the chore renders neutral — no sigil at all. A brand-new chore
-has no meaningful track record, and silence beats a confident-looking wrong signal. It also
-means adding a chore never immediately brands it as failing.
+This model replaced the initially approved five-cycle ratio after browser verification
+exposed a feedback failure. In the ratio model, the currently overdue interval was already
+counted as a miss; completing it merely changed an open miss into a closed miss, leaving the
+same frozen sigil immediately after the app said "thawed." The bounded streak preserves the
+live cooling behavior while making the rescue itself meaningful.
 
 ### Visual treatment is a bare emoji sigil
 
@@ -87,37 +71,37 @@ rule and staying bounded enough not to distort the weekly bars.
 A pure module in the style of the existing `choreHistory.js` / `logModel.js` / `effortGoal.js`,
 with `src/choreTemperature.test.js` beside it.
 
-**Scoring intervals.** Walk a chore's completion timestamps in ascending order and score each
-interval between consecutive completions. The walk is anchored at `chore.createdAt`, the same
-anchor `lastDone` uses. An interval is **on time** when its pause-adjusted length is
-≤ `freqDays`, using `pausedDuration(pauses, ["house"], from, to)` from `logModel.js` — the
-identical call `activeDaysSinceDone` makes, so a household vacation never freezes the board.
+**Walking the timeline.** Walk a chore's completion timestamps in ascending order, anchored
+at `chore.createdAt`. For every span:
 
-**The open interval.** The still-running interval (last completion → now) counts as a **miss**
-once it exceeds `freqDays`, and counts as nothing while still inside its window. So a chore
-cools in real time as it drifts overdue rather than waiting to be finally done, and a chore
-that is merely *young* is never punished for being unfinished.
+1. Count the frequency deadlines that passed unmet and decrement once per deadline.
+2. If the completion was inside its first allowed window, increment once.
+3. If it was late, add no heat; if the running score is negative, clear it to zero.
+
+The pause-adjusted duration uses `pausedDuration(pauses, ["house"], from, to)` from
+`logModel.js`, the same adjustment `activeDaysSinceDone` makes, so a household vacation
+never chills the board.
+
+**The open interval.** After the last completion, every further elapsed frequency window
+decrements the streak in real time. A chore therefore cools while it is being neglected
+rather than waiting for a completion event.
 
 **Anchor guard.** If `chore.createdAt` is missing or non-positive, start the walk at the first
 completion instead, so the first interval is simply not scored. Without this, `createdAt || 0`
 would produce an epoch-length first interval and brand the chore frozen instantly.
 
-**Tiers.** Take the most recent 5 scored intervals. Below 3, return neutral. Otherwise the
-tier follows the on-time ratio:
+**Tiers.**
 
-| ratio | tier | sigil |
+| streak | tier | sigil |
 | --- | --- | --- |
-| `= 1.0` | scorching | 🔥🥵 |
-| `>= 0.8` | warm | 🔥 |
-| `> 0.4` | neutral | *(none)* |
-| `> 0.2` | cold | ❄️ |
-| `<= 0.2` | frozen | ❄️🥶 |
+| `+2` | scorching | 🔥🥵 |
+| `+1` | warm | 🔥 |
+| `0` | neutral | *(none)* |
+| `-1` | cold | ❄️ |
+| `-2` | frozen | ❄️🥶 |
 
-Over a full five-cycle window that reads: 5/5 scorching, 4/5 warm, 3/5 neutral, 2/5 cold,
-0–1/5 frozen.
-
-**Exports:** `CYCLE_WINDOW`, `MIN_SCORED_CYCLES`, `TEMPERATURE_TIERS`, `choreCycleResults`,
-`choreTemperature`, `thawBonus`.
+**Exports:** `STREAK_MAX`, `STREAK_MIN`, `TEMPERATURE_TIERS`, `choreStreak`,
+`choreTemperature`, `streakLabel`, `thawBonus`.
 
 ### Scoring edge cases, decided
 
@@ -128,7 +112,9 @@ Over a full five-cycle window that reads: 5/5 scorching, 4/5 warm, 3/5 neutral, 
 - **Intervals score against the chore's *current* `freqDays`.** Tightening a chore's frequency
   retroactively re-judges its history. This is the simple behaviour and the honest one; the
   alternative is snapshotting frequency onto every completion record.
-- **The time-machine sandbox works for free**, since temperature is computed from `now()`,
+- **A never-completed chore can cool.** Its first open span begins at `createdAt`; repeated
+  missed due dates eventually freeze it.
+- **The time-machine sandbox works for free**, since the open span is computed from `now()`,
   which already carries `TIME_OFFSET`.
 
 ### The sigil on the bubble
@@ -173,12 +159,14 @@ display the total. Joint completions pay the bonus to **both** people, consisten
 METHODS.md §1. Service and reset completions never earn one. Undo removes the whole record, so
 the bonus reverses for free.
 
-### Why this cannot be farmed
+### Farming trade-off
 
-Freezing a chore costs at least three missed cycles at `difficulty` points each; the bonus
-pays back at most 3. Neglecting Dishes for three days to earn +2 forfeits 3 points to gain 2.
-This is structural rather than a defence bolted on — and it is a direct consequence of the
-five-cycle memory. A shorter window would have made it farmable.
+An established scorching chore needs four successive missed cycles to become frozen, which
+normally costs more opportunity than the rescue bonus returns. A just-rescued neutral chore,
+however, needs only two missed cycles to freeze again. If that chore has importance 4–5 but
+difficulty 1, deliberately repeating that loop can produce one extra point compared with
+doing it on schedule. The importance-based bonus was kept because it is an explicit product
+choice; the streak rewrite no longer claims farming is structurally impossible.
 
 ### Known imprecision
 
@@ -203,11 +191,12 @@ METHODS.md rather than papered over.
 
 `npm test` (vitest) covering:
 
-- interval scoring, including pause-adjusted intervals
-- the open interval cooling a chore in real time once overdue
-- the open interval *not* counting while still inside its window
-- the under-3-cycles neutral floor, and the missing-`createdAt` anchor guard
-- every tier boundary
+- on-time completions climbing to the `+2` cap
+- missed deadlines decrementing gradually to the `-2` cap
+- a cold or frozen late completion resetting immediately to neutral
+- the next two on-time completions producing 🔥 and then 🔥🥵
+- pause-adjusted spans and the missing-`createdAt` anchor guard
+- every streak-to-tier mapping and the bounded status-sheet labels
 - bonus banding across tier × importance
 - `completionCredit` and `completionImpact` picking up stored bonuses
 

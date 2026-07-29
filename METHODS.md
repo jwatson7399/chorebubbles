@@ -492,25 +492,31 @@ Shuffle varied the plan within a fixed intensity.
 
 **Objective.** The bubble field read a chore's *current* state well — bubbles swell with
 urgency, gain a hue-coloured border and glow past due, and breathe faster when badly overdue
-— but showed its *history* not at all. A reliable chore having one bad week and a chore the
-household had quietly abandoned looked identical the moment their urgency matched.
+— but showed its *rhythm* not at all. The temperature sigil adds a compact streak signal:
+on-time runs heat a chore up, repeated missed deadlines cool it down, and doing a neglected
+chore visibly rescues it back to neutral.
 
-**Methodology / data.** Three questions had to be settled before any pixels.
+**Methodology / data.** The first implementation used an on-time ratio over the last five
+cycles. Browser verification exposed a broken feedback loop: the currently overdue interval
+already counted as a miss, and completing it merely converted that open miss into a closed
+miss. A frozen bubble therefore stayed pixel-identically frozen after its "thawed!" toast.
+The model was replaced with a bounded streak that makes rescue an actual state transition.
 
-*What does temperature measure?* Rejected blending in current urgency: overdue-right-now is
-already encoded three ways, so frost would have become a synonym for "big and glowing" —
-decoration rather than information. Temperature is computed from **completion history alone**,
-so a chore that has been reliable for two months but slipped this week stays warm. That is the
-honest reading, and it is also what makes the bonus defensible: it rewards rehabilitating a
-chronically neglected chore, not doing something that merely happens to be late today.
+The streak starts at zero and is derived from the chore's creation date and completion
+timestamps; nothing new is persisted.
 
-*How long is the memory?* Measured in **cycles**, not days, which is what makes it fair across
-frequencies — five cycles of Dishes is five days, five cycles of Mop floors is ten weeks. Three
-cycles swung too fast (one miss visibly chilled a chore, so frost stopped meaning "chronically
-neglected"); eight to ten was so slow that an already-fixed chore stayed frosted for weeks,
-killing the reward loop. **Five** needs a genuine run of 3–4 misses to freeze and about the
-same to thaw. Below **3 scoreable cycles** the chore renders neutral — a new chore has no track
-record, and silence beats a confident-looking wrong signal.
+- An on-time completion adds one step, capped at `+2`.
+- Each due date that passes without completion removes one step, capped at `-2`. This is the
+  deliberately gentle downward variant: 🔥🥵 becomes 🔥, then neutral, then ❄️, then ❄️🥶
+  across four successive missed cycles instead of losing a long good run all at once.
+- Completing late adds no heat. If the chore is below zero, however, doing it clears the debt
+  to zero: ❄️ or ❄️🥶 becomes neutral immediately.
+- From neutral, the next on-time completion becomes 🔥 and the following one becomes 🔥🥵.
+  Further on-time completions stay capped at 🔥🥵.
+
+Misses are measured in each chore's own frequency windows, so the model remains comparable
+across daily, weekly, and fortnightly chores. The still-open interval is evaluated against
+`now()`, which makes neglect cool a bubble without requiring a completion event.
 
 *What does it look like?* Three directions were mocked up against the real bubble gradient on
 the real background. **Rim and atmosphere** (desaturate, crystalline rim, slower breathing) was
@@ -521,12 +527,16 @@ facets, ember pooling in the fill) avoided that conflict. A **bare emoji sigil**
 the bubble is untouched, and a 14px ❄️ / ❄️🥶 / 🔥 / 🔥🥵 sits top-right, clear of the points
 badge that compact bubbles carry bottom-right.
 
-**Results.** `src/choreTemperature.js` with 23 vitest cases; 116 tests pass and the build is
-clean. Verified end-to-end on the dev server against a seeded household with one chore
-engineered into each tier — all seven classified as designed, the bonus banked on the record,
-and deleting a bonus completion reversed all six points rather than only the base three.
+**Results.** `src/choreTemperature.js` keeps the calculation pure and independently tested.
+The first ratio-based version was verified end-to-end against a seeded household; the
+streak rewrite adds direct regression coverage for the rescue transition, gradual cooling,
+the ±2 caps, pause-adjusted time, every sigil, and the detail-sheet wording.
 
 **Design rationale / notes.**
+- **The five states map directly to the bounded streak:** `+2` 🔥🥵, `+1` 🔥, `0` no
+  sigil, `-1` ❄️, and `-2` ❄️🥶. The status sheet names the bounded state rather than
+  pretending it is a literal count: gradual cooling means `+1` can follow a miss, and the
+  `-2` floor can represent more than two missed cycles.
 - **The reward is a flat capped bonus, not a multiplier.** Two constraints ruled multipliers
   out. Points are deliberately whole numbers (§1), and a ×1.5 reintroduces exactly the drifting
   decimals that model was built to remove. And with a default goal of 14 and difficulty capped
@@ -539,9 +549,6 @@ and deleting a bonus completion reversed all six points rather than only the bas
   shift because the chore warmed up later. `normalizeData` spreads unknown fields through
   (§10), so older bundles preserve `bonus` rather than dropping it. The key is omitted entirely
   when zero, leaving ordinary records byte-identical to before.
-- **Farming is structurally unprofitable**, not defended against. Freezing a chore costs at
-  least three missed cycles at `difficulty` each; the bonus pays back at most 3. This is a
-  direct consequence of the five-cycle memory — a shorter window would have made it farmable.
 - **Service and board-reset completions count as done.** They earn no effort credit, but the
   chore genuinely got done, matching what `lastDone` and `urgencyOf` already believe.
 - **Intervals are scored against the chore's *current* `freqDays`**, so tightening a frequency
@@ -551,10 +558,12 @@ and deleting a bonus completion reversed all six points rather than only the bas
   nothing about bonus points, so a household that thaws frequently runs marginally easy against
   its goal. Bounded at +3 and rare by construction, the drift is small — but it is real, and
   the goal number is not exact.
-- **A first rescue does not thaw the bubble.** Completing a long-frozen chore closes an
-  interval that was itself a miss, so the sigil persists until the chore sustains a run. This
-  is correct and deliberate, but the completion toast currently says "thawed!", which
-  overpromises against what the board then shows.
+- **The shorter recovery window weakens the original anti-farming property.** An established
+  hot chore needs four missed cycles to freeze, but a just-rescued neutral chore needs only
+  two. In the edge case of an importance-4/5 chore with difficulty 1, deliberately repeating
+  that pattern can earn one more point than doing it on schedule. The bonus was left unchanged
+  because its importance banding is an explicit product choice; this is a known trade-off,
+  not a claim that the new streak makes farming impossible.
 
 ---
 
