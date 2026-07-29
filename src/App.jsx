@@ -48,10 +48,10 @@ import { applyOperation, defaultData, normalizeData } from "./dataModel.js";
 import {
   CELEBRITY_OWNERS,
   DAY_MS,
-  celebrityBadgeLabel,
   celebrityChoreForSave,
   celebrityCompletionOrder,
   celebrityDueDaysForForm,
+  celebrityOwnerBackground,
   celebrityOwnerLabel,
   celebrityTiming,
   isCelebrityChore,
@@ -402,7 +402,7 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
         return (
           <div
             key={n.id}
-            aria-label={`${n.chore.name}, ${n.chore.difficulty} point${n.chore.difficulty === 1 ? "" : "s"}${celebrity ? `, celebrity chore, ${celebrityBadgeLabel(n.chore, settings, now())}` : ""}${n.temp?.label ? `, ${n.temp.label}` : ""}${suggested ? ", suggested chore" : ""}`}
+            aria-label={`${n.chore.name}, ${n.chore.difficulty} point${n.chore.difficulty === 1 ? "" : "s"}${celebrity ? `, celebrity chore, ${celebrityOwnerLabel(n.chore.owner, settings)}, ${n.timing.longLabel}` : ""}${n.temp?.label ? `, ${n.temp.label}` : ""}${suggested ? ", suggested chore" : ""}`}
             data-label-mode={!showInlineLabel ? "hidden" : compactLabel ? "compact" : "full"}
             onPointerDown={(e) => onPointerDown(e, n)}
             onPointerMove={(e) => onPointerMove(e, n)}
@@ -469,7 +469,7 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                 flexShrink: 0,
                 borderRadius: "50%",
                 background: celebrity
-                  ? "radial-gradient(circle at 32% 30%, #F6A0B6, #DB6988 60%, #A73E61)"
+                  ? celebrityOwnerBackground(n.chore.owner)
                   : `radial-gradient(circle at 32% 30%, ${n.hue}F5, ${n.hue}AA 60%, ${n.hue}66)`,
                 boxShadow: suggested
                   ? `${bubbleShadow}, 0 0 0 3px #5FE0BB, 0 0 22px #5FE0BBDD, 0 0 42px #5FE0BB77`
@@ -552,17 +552,17 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                         fontWeight: 800,
                         fontSize: Math.max(9, Math.min(n.r * 0.22, 12)),
                         color: "#0C1B26",
-                        opacity: 0.62,
+                      opacity: 0.62,
                         lineHeight: 1,
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {n.chore.difficulty} pt{n.chore.difficulty === 1 ? "" : "s"}
+                      {celebrity ? n.timing.shortLabel : `${n.chore.difficulty} pt${n.chore.difficulty === 1 ? "" : "s"}`}
                     </span>
                   )}
                 </div>
               )}
-              {compactLabel && showInlineLabel && (
+              {!celebrity && compactLabel && showInlineLabel && (
                 <span
                   aria-hidden="true"
                   style={{
@@ -588,34 +588,6 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                 </span>
               )}
             </div>
-            {celebrity && (
-              <span
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  top: Math.max(0, (hitDiameter - n.r * 2) / 2 - 5),
-                  right: Math.max(-4, (hitDiameter - n.r * 2) / 2 - 8),
-                  minHeight: 25,
-                  padding: "0 8px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  border: "2px solid #0B202C",
-                  borderRadius: 999,
-                  color: overdue ? "#3A0711" : "#073031",
-                  background: overdue ? "#FF7783" : "#5FE0BB",
-                  boxShadow: "0 3px 9px rgba(0,0,0,0.34)",
-                  fontFamily: "'Baloo 2', sans-serif",
-                  fontSize: 9.5,
-                  fontWeight: 700,
-                  lineHeight: 1,
-                  whiteSpace: "nowrap",
-                  pointerEvents: "none",
-                }}
-              >
-                {celebrityBadgeLabel(n.chore, settings, now())}
-              </span>
-            )}
           </div>
         );
       })}
@@ -905,6 +877,7 @@ function ChoreFields({ title, value, onChange }) {
 
 function CelebrityChoreFields({ value, onChange, settings }) {
   const effortText = (level) => ["", "Very easy", "Easy", "Moderate", "Hard", "Very hard"][level];
+  const detailsLength = typeof value.details === "string" ? value.details.length : 0;
   const ownerLabels = {
     a: (settings.nameA || "Julian")[0]?.toUpperCase() || "J",
     joint: `${(settings.nameA || "Julian")[0]?.toUpperCase() || "J"}+${(settings.nameB || "Kristine")[0]?.toUpperCase() || "K"}`,
@@ -954,6 +927,21 @@ function CelebrityChoreFields({ value, onChange, settings }) {
           })}
         </div>
       </div>
+      <label style={{ display: "block", padding: "10px 0 12px" }}>
+        <span style={{ display: "block", color: "#E8F3F4", fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Details</span>
+        <textarea
+          rows={3}
+          value={typeof value.details === "string" ? value.details : ""}
+          placeholder="What counts as done?"
+          onChange={(event) => onChange({ details: event.target.value })}
+          style={{ width: "100%", resize: "vertical", background: "#0F2530", border: "1px solid #1E4152", borderRadius: 12, padding: "12px 14px", color: "#E8F3F4", fontSize: 14, lineHeight: 1.45, fontFamily: "inherit", outline: "none" }}
+        />
+        {detailsLength > 400 && (
+          <span style={{ display: "block", marginTop: 4, color: detailsLength > 500 ? "#FF8B7B" : "#7FA3AC", fontSize: 11.5, textAlign: "right" }}>
+            {detailsLength} / 500{detailsLength > 500 ? " · extra text will be trimmed" : ""}
+          </span>
+        )}
+      </label>
     </section>
   );
 }
@@ -2627,6 +2615,22 @@ export default function ChoreBubbles() {
               </>
             )}
           </div>
+          {isCelebrityChore(tapChore) && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!window.confirm(`Delete "${tapChore.name}"? This removes the celebrity chore without logging a completion.`)) return;
+                const name = tapChore.name;
+                if (!commit({ type: "chore:delete", choreId: tapChore.id })) return;
+                setTapChore(null);
+                setTapWhenDays(0);
+                showToast(`${name} deleted`);
+              }}
+              style={{ ...btnStyle("#0F2530", "#FF8B7B"), width: "100%", marginTop: 12, border: "1px solid #513541" }}
+            >
+              Delete celebrity chore
+            </button>
+          )}
           {!isCelebrityChore(tapChore) && <button
             type="button"
             aria-expanded={tapHistoryOpen}
@@ -2779,7 +2783,15 @@ export default function ChoreBubbles() {
           )}
           <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
             {editChore.id && (
-              <button onClick={() => deleteChore(editChore.id)} style={{ ...btnStyle("#0F2530", "#FF8B7B"), flex: 1, border: "1px solid #1E4152" }}>Delete</button>
+              <button
+                onClick={() => {
+                  if (isCelebrityChore(editChore) && !window.confirm(`Delete "${editChore.name}"? This removes the celebrity chore without logging a completion.`)) return;
+                  deleteChore(editChore.id);
+                }}
+                style={{ ...btnStyle("#0F2530", "#FF8B7B"), flex: 1, border: "1px solid #1E4152" }}
+              >
+                {isCelebrityChore(editChore) ? "Delete celebrity chore" : "Delete"}
+              </button>
             )}
             <button
               onClick={() => {

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   DAY_MS,
-  celebrityBadgeLabel,
   celebrityChoreForSave,
   celebrityCompletionOrder,
   celebrityDueDaysForForm,
   celebrityOwnerBadge,
+  celebrityOwnerBackground,
   celebrityTiming,
   isCelebrityChore,
   isPreferredCelebrityActor,
@@ -40,9 +40,13 @@ describe("celebrity chore ownership", () => {
     expect(celebrityOwnerBadge("either", settings)).toBe("J or K");
   });
 
-  it("combines ownership and time with a centered dot", () => {
-    const chore = { owner: "b", createdAt: NOW, dueAt: NOW + 7 * DAY_MS };
-    expect(celebrityBadgeLabel(chore, settings, NOW)).toBe("K · 7d");
+  it("uses distinct stripe palettes for every ownership mode", () => {
+    const backgrounds = ["a", "joint", "b", "either"].map(celebrityOwnerBackground);
+    expect(new Set(backgrounds).size).toBe(4);
+    expect(celebrityOwnerBackground("a")).toContain("#6FB9EC");
+    expect(celebrityOwnerBackground("b")).toContain("#B58AD9");
+    expect(celebrityOwnerBackground("joint")).not.toContain("#F3F7FA");
+    expect(celebrityOwnerBackground("either")).toContain("#F3F7FA");
   });
 
   it("puts the assigned completion action first but keeps escape hatches", () => {
@@ -68,6 +72,7 @@ describe("celebrity chore data", () => {
       difficulty: 4,
       owner: "joint",
       dueDays: 3,
+      details: "  Tighten the latch and test both hinges.  ",
       importance: 5,
       freqDays: 9,
       service: true,
@@ -76,7 +81,7 @@ describe("celebrity chore data", () => {
     expect(saved).toEqual({
       type: "celebrity",
       name: "Fix gate",
-      details: "",
+      details: "Tighten the latch and test both hinges.",
       difficulty: 4,
       owner: "joint",
       createdAt: NOW,
