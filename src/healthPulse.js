@@ -3,7 +3,7 @@ const CREDITED_ACTORS = new Set(["a", "b", "joint"]);
 export function creditedCompletionIds(completions) {
   return new Set(
     (completions || [])
-      .filter((completion) => CREDITED_ACTORS.has(completion.by))
+      .filter((completion) => CREDITED_ACTORS.has(completion.by) && !completion.celebrityChore)
       .map((completion) => completion.id)
       .filter(Boolean)
   );

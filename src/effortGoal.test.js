@@ -72,6 +72,13 @@ describe("suggestEffortGoal", () => {
   it("returns null when there is nothing to derive from", () => {
     expect(suggestEffortGoal([])).toBeNull();
     expect(suggestEffortGoal(null)).toBeNull();
+    expect(suggestEffortGoal([{ type: "celebrity", difficulty: 5, dueAt: Date.now() }])).toBeNull();
+  });
+
+  it("excludes celebrity chores from recurring household demand", () => {
+    const recurring = chore({ importance: 4, difficulty: 3, freqDays: 7 });
+    const celebrity = { type: "celebrity", difficulty: 5, createdAt: 1, dueAt: 2 };
+    expect(suggestEffortGoal([recurring, celebrity])).toEqual(suggestEffortGoal([recurring]));
   });
 
   it("derives green and scale from coverage of the fair share", () => {

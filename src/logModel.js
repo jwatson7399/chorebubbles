@@ -1,3 +1,5 @@
+import { isCelebrityChore } from "./celebrityChore.js";
+
 const DAY = 86400000;
 const PERIOD = 7 * DAY;
 
@@ -189,7 +191,7 @@ export function suggestPlan(chores, gap, urgencyById = {}, intensity = DEFAULT_I
 
   const spec = intensitySpec(intensity);
   const eligible = (chores || []).filter(
-    (chore) => chore && chore.id && Number.isFinite(effortOf(chore)) && effortOf(chore) > 0
+    (chore) => chore && !isCelebrityChore(chore) && chore.id && Number.isFinite(effortOf(chore)) && effortOf(chore) > 0
   );
   if (eligible.length === 0) return null;
 

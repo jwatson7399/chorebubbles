@@ -7,6 +7,7 @@ The installable PWA runs full-screen from each phone and securely syncs shared s
 ## Features
 
 - Bubble field with gentle physics, drag to rearrange, tap to complete
+- One-time celebrity chores with deadlines, ownership, capped growth, and distinct spotlight/alarm treatments
 - Importance, difficulty, and goal frequency per chore
 - Last-done banners and complete per-chore activity histories
 - Heat and frost sigils showing each chore's current streak, with bonus points for rescuing neglected ones

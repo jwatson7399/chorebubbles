@@ -117,6 +117,12 @@ describe("gap suggestions", () => {
     expect(suggestPlan([], 10, allUrgent, "mixed")).toBeNull();
   });
 
+  it("never suggests a celebrity chore as recurring upkeep", () => {
+    const celebrity = { id: "celeb", type: "celebrity", name: "Fix gate", difficulty: 5 };
+    const result = suggestPlan([celebrity, ...chores], 5, { ...allUrgent, celeb: 10 }, "mixed");
+    expect(result.chores.some((chore) => chore.id === celebrity.id)).toBe(false);
+  });
+
   it("pairs one bigger job with quick wins on Mixed", () => {
     const result = suggestPlan(chores, 10, allUrgent, "mixed");
     expect(anchors(result)).toBe(1);

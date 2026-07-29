@@ -1,4 +1,5 @@
 import { isTwoStepChore } from "./twoStepChore.js";
+import { isCelebrityChore } from "./celebrityChore.js";
 
 // The effort scale and green threshold used to be hand-picked numbers. They were
 // calibrated against a ten-chore starter list, then the household tripled the list
@@ -84,7 +85,7 @@ const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 // Over a full cycle both steps are done, which takes the sum of the frequencies and
 // costs the sum of the efforts — so the active step's own numbers understate demand.
 export function choreDemandPerDay(chore) {
-  if (!chore) return 0;
+  if (!chore || isCelebrityChore(chore)) return 0;
   if (isTwoStepChore(chore)) {
     const [first, second] = chore.twoStep.steps;
     const effort = positive(first?.difficulty, 2) + positive(second?.difficulty, 2);
@@ -118,7 +119,7 @@ export function paddingCeilingPerWeek(chores) {
 }
 
 export function suggestEffortGoal(chores, coverage = GREEN_COVERAGE) {
-  const list = Array.isArray(chores) ? chores : [];
+  const list = (Array.isArray(chores) ? chores : []).filter((chore) => !isCelebrityChore(chore));
   if (!list.length) return null;
 
   const demandPerWeek = householdDemandPerWeek(list);

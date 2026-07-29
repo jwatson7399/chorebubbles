@@ -28,6 +28,12 @@ describe("home health pulse", () => {
     expect(shouldPulseHealth(0.75, 0.75, previousIds, completions)).toBe(false);
   });
 
+  it("does not pulse household health for a celebrity completion", () => {
+    const previousIds = creditedCompletionIds([completion("old", "a")]);
+    const celebrity = { ...completion("celebrity", "a"), celebrityChore: { type: "celebrity" } };
+    expect(shouldPulseHealth(0.75, 0.75, previousIds, [completion("old", "a"), celebrity])).toBe(false);
+  });
+
   it("still pulses when the score rises for another reason", () => {
     expect(shouldPulseHealth(0.6, 0.7, new Set(), [])).toBe(true);
   });
