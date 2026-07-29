@@ -64,8 +64,17 @@ export function celebrityOwnerLabel(owner, settings = {}) {
   return `${a} or ${b}`;
 }
 
-export function celebrityBadgeLabel(chore, settings, at = Date.now()) {
-  return `${celebrityOwnerBadge(chore?.owner, settings)} · ${celebrityTiming(chore, at).shortLabel}`;
+export function celebrityOwnerBackground(owner) {
+  if (owner === "a") {
+    return "repeating-linear-gradient(135deg, #F3F7FA 0 12px, #6FB9EC 12px 24px)";
+  }
+  if (owner === "b") {
+    return "repeating-linear-gradient(135deg, #F3F7FA 0 12px, #B58AD9 12px 24px)";
+  }
+  if (owner === "joint") {
+    return "repeating-linear-gradient(135deg, #6FB9EC 0 12px, #B58AD9 12px 24px)";
+  }
+  return "repeating-linear-gradient(135deg, #F3F7FA 0 10px, #6FB9EC 10px 20px, #B58AD9 20px 30px)";
 }
 
 export function celebrityDueDaysForForm(chore, at = Date.now()) {
