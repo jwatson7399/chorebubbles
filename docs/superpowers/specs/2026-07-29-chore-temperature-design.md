@@ -94,11 +94,15 @@ would produce an epoch-length first interval and brand the chore frozen instantl
 
 | streak | tier | sigil |
 | --- | --- | --- |
-| `+2` | scorching | 🔥🥵 |
+| `+2` | scorching | 🔥 |
 | `+1` | warm | 🔥 |
 | `0` | neutral | *(none)* |
 | `-1` | cold | ❄️ |
-| `-2` | frozen | ❄️🥶 |
+| `-2` | frozen | 🧊 |
+
+Heat is binary at the presentation layer: both positive states show the same single 🔥.
+The state and status text still distinguish warm from scorching. Cold keeps two distinct
+symbols, ❄️ for chilled and 🧊 for fully frozen.
 
 **Exports:** `STREAK_MAX`, `STREAK_MIN`, `TEMPERATURE_TIERS`, `choreStreak`,
 `choreTemperature`, `streakLabel`, `thawBonus`.
@@ -194,7 +198,7 @@ METHODS.md rather than papered over.
 - on-time completions climbing to the `+2` cap
 - missed deadlines decrementing gradually to the `-2` cap
 - a cold or frozen late completion resetting immediately to neutral
-- the next two on-time completions producing 🔥 and then 🔥🥵
+- the next on-time completion turning 🔥 on and later on-time completions keeping it on
 - pause-adjusted spans and the missing-`createdAt` anchor guard
 - every streak-to-tier mapping and the bounded status-sheet labels
 - bonus banding across tier × importance

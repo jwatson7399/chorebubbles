@@ -9,11 +9,11 @@ export const STREAK_MAX = 2;
 export const STREAK_MIN = -2;
 
 export const TEMPERATURE_TIERS = {
-  scorching: { key: "scorching", sigil: "🔥🥵", label: "on a scorching streak" },
+  scorching: { key: "scorching", sigil: "🔥", label: "on a scorching streak" },
   warm: { key: "warm", sigil: "🔥", label: "running warm" },
   neutral: { key: "neutral", sigil: "", label: "" },
   cold: { key: "cold", sigil: "❄️", label: "going cold" },
-  frozen: { key: "frozen", sigil: "❄️🥶", label: "frozen over" },
+  frozen: { key: "frozen", sigil: "🧊", label: "frozen over" },
 };
 
 const TIER_BY_STREAK = {

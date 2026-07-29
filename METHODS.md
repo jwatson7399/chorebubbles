@@ -507,12 +507,12 @@ timestamps; nothing new is persisted.
 
 - An on-time completion adds one step, capped at `+2`.
 - Each due date that passes without completion removes one step, capped at `-2`. This is the
-  deliberately gentle downward variant: 🔥🥵 becomes 🔥, then neutral, then ❄️, then ❄️🥶
+  deliberately gentle downward variant: hot becomes warm, then neutral, then ❄️, then 🧊
   across four successive missed cycles instead of losing a long good run all at once.
 - Completing late adds no heat. If the chore is below zero, however, doing it clears the debt
-  to zero: ❄️ or ❄️🥶 becomes neutral immediately.
-- From neutral, the next on-time completion becomes 🔥 and the following one becomes 🔥🥵.
-  Further on-time completions stay capped at 🔥🥵.
+  to zero: ❄️ or 🧊 becomes neutral immediately.
+- From neutral, the next on-time completion turns 🔥 on. Further on-time completions keep it
+  on while the underlying streak stays capped at `+2`.
 
 Misses are measured in each chore's own frequency windows, so the model remains comparable
 across daily, weekly, and fortnightly chores. The still-open interval is evaluated against
@@ -524,8 +524,9 @@ the most elegant but wrote into the outer halo, which is already spoken for — 
 glows in its own hue and a shuffle suggestion adds a yellow ring plus a second glow, so an
 overdue frozen suggested chore would carry three arguing glows. **Surface treatment** (frost
 facets, ember pooling in the fill) avoided that conflict. A **bare emoji sigil** was chosen:
-the bubble is untouched, and a 14px ❄️ / ❄️🥶 / 🔥 / 🔥🥵 sits top-right, clear of the points
-badge that compact bubbles carry bottom-right.
+the bubble is untouched, and a 14px 🔥 / ❄️ / 🧊 sits top-right, clear of the points badge
+that compact bubbles carry bottom-right. Heat is deliberately binary — 🔥 is either on or
+off — while cold keeps distinct chilled and frozen symbols.
 
 **Results.** `src/choreTemperature.js` keeps the calculation pure and independently tested.
 The first ratio-based version was verified end-to-end against a seeded household; the
@@ -533,8 +534,8 @@ streak rewrite adds direct regression coverage for the rescue transition, gradua
 the ±2 caps, pause-adjusted time, every sigil, and the detail-sheet wording.
 
 **Design rationale / notes.**
-- **The five states map directly to the bounded streak:** `+2` 🔥🥵, `+1` 🔥, `0` no
-  sigil, `-1` ❄️, and `-2` ❄️🥶. The status sheet names the bounded state rather than
+- **The five states map to three quiet visual marks:** `+2` and `+1` both use 🔥, `0` has no
+  sigil, `-1` uses ❄️, and `-2` uses 🧊. The status sheet names the bounded state rather than
   pretending it is a literal count: gradual cooling means `+1` can follow a miss, and the
   `-2` floor can represent more than two missed cycles.
 - **The reward is a flat capped bonus, not a multiplier.** Two constraints ruled multipliers

@@ -120,16 +120,16 @@ describe("tiers", () => {
     expect(tierFor([1], { createdDays: 2 }).sigil).toBe("🔥");
   });
 
-  it("gives two flames for two in a row", () => {
-    expect(tierFor([2, 1], { createdDays: 3 }).sigil).toBe("🔥🥵");
+  it("keeps the single fire lit at the top of a hot streak", () => {
+    expect(tierFor([2, 1], { createdDays: 3 }).sigil).toBe("🔥");
   });
 
   it("gives one snowflake for a single missed cycle", () => {
     expect(tierFor([15, 14, 13], { createdDays: 16 }, 3).sigil).toBe("❄️");
   });
 
-  it("gives two snowflakes for an abandoned chore", () => {
-    expect(tierFor([], { createdDays: 90 }).sigil).toBe("❄️🥶");
+  it("switches from a snowflake to an ice cube when fully frozen", () => {
+    expect(tierFor([], { createdDays: 90 }).sigil).toBe("🧊");
   });
 });
 
