@@ -362,7 +362,14 @@ The Log, first card on the Chores tab — which is where the fine-tune steppers 
 The steppers used to sit permanently below the presets under a "Fine-tune" caption, which
 made hand-tuned numbers look like a footnote rather than a choice.
 
-Custom is **derived, not stored**: it means the household's numbers match no preset. A
+Custom **remembers its numbers** in `settings.customGoal`, so the household can move
+between presets and their own figures without losing them. Shared rather than per-device,
+because the goal itself is shared — one phone remembering different custom numbers than
+the other would be worse than not remembering at all. It is stored separately from
+`weeklyGoal`/`greenStart`, which are the live values whatever their source; overloading
+them would make "what did we last tune it to" unanswerable while a preset is selected.
+
+Which pill reads as active stays **derived**: it means the numbers match no preset. A
 stored mode would need a migration for households that set a goal before presets existed,
 and could disagree with the actual settings — still reading "Balanced" after a stepper
 moved. Nudging a stepper therefore flips the badge to Custom on both screens with no

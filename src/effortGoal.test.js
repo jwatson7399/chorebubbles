@@ -9,6 +9,7 @@ import {
   isGoalStale,
   shouldShowGoalNudge,
   activeGoalId,
+  normalizeCustomGoal,
   CUSTOM_GOAL_ID,
 } from "./effortGoal.js";
 
@@ -298,5 +299,27 @@ describe("activeGoalId", () => {
 
   it("accepts string settings without reporting a false custom", () => {
     expect(activeGoalId(presets, "29", "19")).toBe("balanced");
+  });
+});
+
+describe("normalizeCustomGoal", () => {
+  it("accepts a stored pair", () => {
+    expect(normalizeCustomGoal({ scale: 33, green: 22 })).toEqual({ scale: 33, green: 22 });
+  });
+
+  it("accepts the settings-shaped keys too", () => {
+    expect(normalizeCustomGoal({ weeklyGoal: 33, greenStart: 22 })).toEqual({ scale: 33, green: 22 });
+  });
+
+  it("rejects anything unusable rather than guessing", () => {
+    expect(normalizeCustomGoal(null)).toBeNull();
+    expect(normalizeCustomGoal({})).toBeNull();
+    expect(normalizeCustomGoal({ scale: "x", green: 5 })).toBeNull();
+  });
+
+  it("clamps to the stepper ranges and keeps green inside the scale", () => {
+    expect(normalizeCustomGoal({ scale: 99, green: 90 })).toEqual({ scale: 40, green: 40 });
+    expect(normalizeCustomGoal({ scale: 1, green: 0 })).toEqual({ scale: 4, green: 2 });
+    expect(normalizeCustomGoal({ scale: 10, green: 25 })).toEqual({ scale: 10, green: 10 });
   });
 });

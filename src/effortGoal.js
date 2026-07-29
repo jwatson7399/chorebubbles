@@ -161,6 +161,25 @@ export function goalPresetOptions(chores) {
 
 export const CUSTOM_GOAL_ID = "custom";
 
+// Hand-tuned numbers are remembered in `settings.customGoal` so the household can move
+// between presets and their own figures without losing them. This is shared rather than
+// per-device because the goal itself is shared — one phone remembering different custom
+// numbers than the other would be worse than not remembering at all.
+//
+// Stored separately from weeklyGoal/greenStart: those are the live values whatever the
+// source, and overloading them would make "what did we last tune it to" unanswerable
+// while a preset is selected.
+export function normalizeCustomGoal(value) {
+  if (!value || typeof value !== "object") return null;
+  const scale = Number(value.scale ?? value.weeklyGoal);
+  const green = Number(value.green ?? value.greenStart);
+  if (!Number.isFinite(scale) || !Number.isFinite(green)) return null;
+
+  const safeScale = clamp(Math.round(scale), SCALE_MIN, SCALE_MAX);
+  const safeGreen = clamp(Math.round(green), GREEN_FLOOR, safeScale);
+  return { scale: safeScale, green: safeGreen };
+}
+
 // Deliberately derived rather than stored: "custom" just means the household's numbers
 // match no preset. Storing a mode would let the badge disagree with the actual settings
 // — say, still reading "Balanced" after someone nudged a stepper — and would need a

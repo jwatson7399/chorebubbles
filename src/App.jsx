@@ -21,7 +21,7 @@ import {
   setGoalNudgeDismissed,
   isSynced,
 } from "./storage.js";
-import { suggestEffortGoal, goalPresetOptions, shouldShowGoalNudge, activeGoalId, CUSTOM_GOAL_ID } from "./effortGoal.js";
+import { suggestEffortGoal, goalPresetOptions, shouldShowGoalNudge, activeGoalId, normalizeCustomGoal, CUSTOM_GOAL_ID } from "./effortGoal.js";
 import {
   bothStreak,
   effortZone,
@@ -1179,6 +1179,23 @@ export default function ChoreBubbles() {
     showToast(`${option.label}: green at ${option.green} of ${option.scale}.`);
   }, [goalSuggestion, commit, showToast]);
 
+  const savedCustomGoal = useMemo(() => normalizeCustomGoal(data?.settings?.customGoal), [data?.settings?.customGoal]);
+
+  // Returns whether anything was restored, so callers can decide what to do when the
+  // household has not tuned its own numbers yet.
+  const applyCustomGoal = useCallback(() => {
+    if (!savedCustomGoal) return false;
+    commit({ type: "settings:patch", patch: { weeklyGoal: savedCustomGoal.scale, greenStart: savedCustomGoal.green } });
+    showToast(`Custom: green at ${savedCustomGoal.green} of ${savedCustomGoal.scale}.`);
+    return true;
+  }, [savedCustomGoal, commit, showToast]);
+
+  // Every stepper change records the pair, so the remembered figures are always the last
+  // ones actually tuned rather than a half-updated mix.
+  const commitCustomGoal = useCallback((scale, green) => {
+    commit({ type: "settings:patch", patch: { weeklyGoal: scale, greenStart: green, customGoal: { scale, green } } });
+  }, [commit]);
+
   const requestMagicLink = async () => {
     const email = authEmail.trim().toLowerCase();
     if (!email) return;
@@ -1716,7 +1733,7 @@ export default function ChoreBubbles() {
                 green={greenMin}
                 activeId={activeGoalId(goalPresets, goal, greenMin)}
                 onPick={applyGoalSuggestion}
-                onCustom={() => { setFineTuneOpen(true); setTab("chores"); }}
+                onCustom={() => { if (!applyCustomGoal()) { setFineTuneOpen(true); setTab("chores"); } }}
                 expanded={goalDetailsOpen}
                 onToggle={() => setGoalDetailsOpen((open) => !open)}
               />
@@ -1938,7 +1955,7 @@ export default function ChoreBubbles() {
                   const active = activeId === CUSTOM_GOAL_ID;
                   return (
                     <button
-                      onClick={() => setFineTuneOpen((open) => !open)}
+                      onClick={() => { if (active) { setFineTuneOpen((open) => !open); return; } applyCustomGoal(); setFineTuneOpen(true); }}
                       aria-pressed={active}
                       aria-expanded={fineTuneOpen || active}
                       style={{
@@ -2011,8 +2028,8 @@ export default function ChoreBubbles() {
           )}
           {(!goalPresets || fineTuneOpen || activeGoalId(goalPresets, settings.weeklyGoal, greenMin) === CUSTOM_GOAL_ID) && (
             <>
-              <Stepper label="Effort scale (full bar)" value={settings.weeklyGoal} min={4} max={40} onChange={(v) => commit({ type: "settings:patch", patch: { weeklyGoal: v, greenStart: Math.min(greenMin, v) } })} />
-              <Stepper label="Green zone starts at" value={greenMin} min={2} max={settings.weeklyGoal} onChange={(v) => commit({ type: "settings:patch", patch: { greenStart: v } })} format={(v) => `${v} pts`} />
+              <Stepper label="Effort scale (full bar)" value={settings.weeklyGoal} min={4} max={40} onChange={(v) => commitCustomGoal(v, Math.min(greenMin, v))} />
+              <Stepper label="Green zone starts at" value={greenMin} min={2} max={settings.weeklyGoal} onChange={(v) => commitCustomGoal(settings.weeklyGoal, v)} format={(v) => `${v} pts`} />
               <div style={{ color: "#7FA3AC", fontSize: 11.5, margin: "-4px 0 8px" }}>
                 Land in the green by reaching {greenMin} of {settings.weeklyGoal} points. The full bar is a reference, not a cutoff.
               </div>
