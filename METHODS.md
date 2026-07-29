@@ -324,12 +324,28 @@ priced against the same chore list:
 | Tidy — most things current, most of the time | 24 | 36 | ~63% |
 | Spotless — everything current, always | 30 | 40 | ~79% |
 
-Two details are load-bearing. The quoted percentage is the coverage **delivered**, not
-the constant asked for: Balanced requests 47% but the padding floor lifts it to 50%, and
-quoting the request would be a lie. And **no gentler preset is offered**. On this list the
-padding ceiling (16.4) is 43% of the fair share, so any coverage below ~50% collapses onto
-the floor — the "we're fine with more mess" option is structurally unavailable, and the
-card explains why rather than hiding it. That is the guarantee working, not a gap.
+Two details are load-bearing. The quoted percentage is the coverage **delivered**, which
+can exceed the constant asked for when the padding floor lifts green — quoting the
+request instead would be a lie. And the floor applies to every preset, so no home style
+can drop green low enough for trivial work alone to reach it.
+
+**Trivial means effort 1, not effort 2 (corrected 2026-07-29).** The ceiling originally
+counted anything at effort ≤ 2, which swept in a load of couch blankets and scrubbing the
+microwave — real jobs, not the walk-past tidying the ceiling is meant to describe. That
+inflated it to 16.4, above half a fair share, so the *floor* rather than the coverage
+constant was setting where green sat: Balanced asked for 47% and delivered 52%, and
+raising the constant to 50% would have changed nothing because the floor still won.
+
+Narrowing to effort 1 drops the ceiling to 13.4 (35% of a fair share), the floor to 15.4,
+and lets coverage drive again — Balanced now means exactly half a fair share and delivers
+it. The guarantee is unchanged in kind: green 19 still clears the 13.4 a household could
+earn on one-point chores alone.
+
+**A single daily one-point chore dominates the ceiling.** Reset Couch alone is 7.0 of the
+13.4, because daily frequency gives it seven chances a week. The ceiling is therefore very
+sensitive to adding quick daily chores, and a second one would raise it by another ~7 and
+push green up with it. Worth watching: the floor is a guarantee, not a target, and it
+should not end up dictating the goal.
 
 Applying a preset dismisses the nudge against the *default* suggestion rather than the
 chosen preset, so picking Spotless does not leave the nudge showing forever.

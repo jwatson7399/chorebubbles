@@ -46,7 +46,9 @@ scale = round( max( 0.75 * fairShare,  green / 0.65 ) )
 ```
 
 Constants: `GREEN_COVERAGE 0.47` (default coverage), `SCALE_COVERAGE 0.75`,
-`PADDING_MARGIN 1.15`, `GREEN_SHARE_OF_SCALE 0.65`. Preset coverages: 0.47 / 0.62 / 0.80.
+`PADDING_MARGIN 1.15`, `GREEN_SHARE_OF_SCALE 0.65`. Preset coverages: 0.50 / 0.62 / 0.80.
+`GREEN_COVERAGE` was 0.47 and trivial meant effort ≤ 2; both were corrected on 2026-07-29
+so Balanced means exactly half a fair share (see METHODS §12).
 
 **Two-step chores** show one step at a time and completing it advances to the other, so
 the active step's own numbers understate demand. Demand is the summed cycle.
@@ -66,7 +68,7 @@ so excluding them would understate the work done in a typical week.
 Empty list returns `null`. Results clamp to the Settings stepper ranges (scale 4–40,
 green 2–scale), so a suggestion is always applicable as-is.
 
-On the live list: `fairShare 38.1`, `paddingCeiling 16.4`, `green 19`, `scale 29`.
+On the live list: `fairShare 38.1`, `paddingCeiling 13.4`, `green 19`, `scale 29`.
 
 ## Settings UI
 
@@ -85,12 +87,13 @@ Then three home-style presets, priced against the same chore list, selectable in
 | Tidy — most things current, most of the time | 24 | 36 | ~63% |
 | Spotless — everything current, always | 30 | 40 | ~79% |
 
-The quoted percentage is the coverage **delivered** (`actualCoverage`), not the constant
-requested — Balanced asks for 47% but the padding floor lifts it to 50%.
+The quoted percentage is the coverage **delivered** (`actualCoverage`), which can exceed
+the constant requested when the padding floor lifts green. On the live list the floor no
+longer binds, so Balanced asks for 50% and delivers exactly 50%.
 
-No gentler preset is offered. This list's padding ceiling (16.4) is 43% of the fair share,
-so any coverage below ~50% collapses onto the floor. The card states this explicitly
-rather than hiding it: green must stay above what trivial chores alone could earn.
+The card's "nothing gentler is offered" line renders only when the gentlest preset is
+floor-limited, so it is hidden for this household and would appear for one whose trivial
+chores could otherwise reach green.
 
 Applying a preset dismisses the nudge against the *default* suggestion, not the chosen
 preset, so picking Spotless does not leave the nudge showing permanently.

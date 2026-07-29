@@ -42,7 +42,7 @@ describe("choreDemandPerDay", () => {
 });
 
 describe("paddingCeilingPerWeek", () => {
-  it("counts only chores that are both unimportant and cheap", () => {
+  it("counts only chores that are both unimportant and genuinely quick", () => {
     const chores = [
       chore({ importance: 2, difficulty: 1, freqDays: 1 }), // trivial: 7/wk
       chore({ importance: 1, difficulty: 5, freqDays: 7 }), // high effort, not padding
@@ -51,8 +51,14 @@ describe("paddingCeilingPerWeek", () => {
     expect(paddingCeilingPerWeek(chores)).toBeCloseTo(7);
   });
 
+  it("excludes effort 2, which is a real job rather than walk-past tidying", () => {
+    // A load of couch blankets: unimportant, but not a ten-second tidy.
+    expect(paddingCeilingPerWeek([chore({ importance: 2, difficulty: 2, freqDays: 7 })])).toBe(0);
+    expect(paddingCeilingPerWeek([chore({ importance: 2, difficulty: 1, freqDays: 7 })])).toBeCloseTo(1);
+  });
+
   it("treats a two-step chore as padding only when neither step matters", () => {
-    const trivial = twoStep({ importance: 2, difficulty: 1 }, { importance: 1, difficulty: 2 });
+    const trivial = twoStep({ importance: 2, difficulty: 1 }, { importance: 1, difficulty: 1 });
     const mixed = twoStep({ importance: 2, difficulty: 1 }, { importance: 5, difficulty: 1 });
     expect(paddingCeilingPerWeek([trivial])).toBeGreaterThan(0);
     expect(paddingCeilingPerWeek([mixed])).toBe(0);
@@ -76,7 +82,7 @@ describe("suggestEffortGoal", () => {
   });
 
   it("lifts green above the padding ceiling when coverage alone would not", () => {
-    // Almost all the work is trivial, so 47% of the share sits below the ceiling.
+    // Almost all the work is trivial, so half the share sits below the ceiling.
     const chores = [
       chore({ importance: 1, difficulty: 1, freqDays: 1 }),
       chore({ importance: 2, difficulty: 1, freqDays: 1 }),
@@ -84,7 +90,7 @@ describe("suggestEffortGoal", () => {
     ];
     const s = suggestEffortGoal(chores);
     expect(s.green).toBeGreaterThan(s.paddingCeiling);
-    expect(s.green).toBeGreaterThan(0.47 * s.fairShare);
+    expect(s.green).toBeGreaterThan(0.5 * s.fairShare);
   });
 
   it("keeps the scale at or above green when the padding floor sets green", () => {
@@ -136,10 +142,13 @@ describe("suggestEffortGoal", () => {
     ];
     const s = suggestEffortGoal(chores);
     expect(s.demandPerWeek).toBeCloseTo(76.2, 0);
-    expect(s.paddingCeiling).toBeCloseTo(16.4, 0);
+    expect(s.paddingCeiling).toBeCloseTo(13.4, 0);
     expect(s.green).toBe(19);
     expect(s.scale).toBe(29);
     expect(s.green).toBeGreaterThan(s.paddingCeiling);
+    // Balanced means half a fair share, and on this list it delivers exactly that.
+    expect(Math.round(s.actualCoverage * 100)).toBe(50);
+    expect(s.floorLimited).toBe(false);
   });
 });
 
@@ -194,13 +203,24 @@ describe("goalPresetOptions", () => {
     options.forEach((option) => expect(option.green).toBeLessThan(option.scale));
   });
 
-  it("reports the coverage actually delivered, not the coverage asked for", () => {
-    // The gentlest preset is lifted by the padding floor on this list, so the
-    // coverage it delivers is higher than its own constant.
+  it("delivers half a fair share on the live list, unhindered by the floor", () => {
     const balanced = goalPresetOptions(liveList())[0];
+    expect(balanced.floorLimited).toBe(false);
+    expect(Math.round(balanced.actualCoverage * 100)).toBe(50);
+  });
+
+  it("reports the coverage actually delivered when the floor does lift green", () => {
+    // Almost all of this household's work is one-point tidying, so the floor overrides
+    // the coverage constant and the delivered coverage exceeds what was asked for.
+    const trivialHome = [
+      chore({ importance: 2, difficulty: 1, freqDays: 1 }),
+      chore({ importance: 1, difficulty: 1, freqDays: 1 }),
+      chore({ importance: 5, difficulty: 2, freqDays: 14 }),
+    ];
+    const balanced = goalPresetOptions(trivialHome)[0];
     expect(balanced.floorLimited).toBe(true);
     expect(balanced.actualCoverage).toBeGreaterThan(GOAL_PRESETS[0].coverage);
-    expect(Math.round(balanced.actualCoverage * 100)).toBe(50);
+    expect(balanced.green).toBeGreaterThan(balanced.paddingCeiling);
   });
 
   it("leaves the default suggestion unchanged at the gentlest preset", () => {

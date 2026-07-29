@@ -13,7 +13,7 @@ import { isTwoStepChore } from "./twoStepChore.js";
 // frequencies describe an ideal, and a household that hits every one of them every
 // time is cleaning constantly; a goal set at the full share would sit permanently
 // out of reach and read as failure rather than encouragement.
-export const GREEN_COVERAGE = 0.47;
+export const GREEN_COVERAGE = 0.5;
 export const SCALE_COVERAGE = 0.75;
 
 // Keeps green near 62-65% of the bar so reaching it never nearly pegs the bar.
@@ -28,7 +28,7 @@ export const GOAL_PRESETS = [
     id: "balanced",
     label: "Balanced",
     blurb: "A healthy home without cleaning nonstop.",
-    coverage: GREEN_COVERAGE,
+    coverage: GREEN_COVERAGE, // half a fair share
   },
   {
     id: "tidy",
@@ -55,10 +55,16 @@ const SCALE_MIN = 4;
 const SCALE_MAX = 40;
 const GREEN_FLOOR = 2;
 
-// A chore counts as trivial padding only when it is both unimportant and cheap.
-// High-effort/low-importance work (Clean Stove) is not padding — it is real labour.
+// A chore counts as trivial padding only when it is both unimportant and genuinely
+// quick. Two conditions, not one: high-effort/low-importance work (Clean Stove, effort
+// 5) is real labour, and low-effort/high-importance work (Kitchen counters) matters.
+//
+// Effort 1 only. Effort 2 was too generous — a load of couch blankets or scrubbing the
+// microwave is not the walk-past tidying this is meant to describe, and counting them
+// inflated the ceiling enough that it, rather than the coverage constant, was setting
+// where green sat.
 const TRIVIAL_IMPORTANCE = 2;
-const TRIVIAL_EFFORT = 2;
+const TRIVIAL_EFFORT = 1;
 
 // How far the live threshold may drift from the suggestion before it is called stale.
 export const DRIFT_LOW = 0.6;
