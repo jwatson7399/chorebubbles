@@ -46,13 +46,14 @@ const initial = (name, fallback) => {
   return value ? value[0].toUpperCase() : fallback;
 };
 
-export function celebrityOwnerBadge(owner, settings = {}) {
-  const a = initial(settings.nameA, "J");
-  const b = initial(settings.nameB, "K");
-  if (owner === "a") return a;
-  if (owner === "b") return b;
-  if (owner === "joint") return `${a}+${b}`;
-  return `${a} or ${b}`;
+// Ownership is spelled with initials tinted in each person's colour, so it has
+// to travel as segments rather than as one string.
+export function celebrityOwnerBadgeParts(owner, settings = {}) {
+  const a = { text: initial(settings.nameA, "J"), tone: "a" };
+  const b = { text: initial(settings.nameB, "K"), tone: "b" };
+  if (owner === "a") return [a];
+  if (owner === "b") return [b];
+  return [a, { text: owner === "joint" ? "+" : "/", tone: "muted" }, b];
 }
 
 export function celebrityOwnerLabel(owner, settings = {}) {
@@ -64,17 +65,26 @@ export function celebrityOwnerLabel(owner, settings = {}) {
   return `${a} or ${b}`;
 }
 
-export function celebrityOwnerBackground(owner) {
-  if (owner === "a") {
-    return "repeating-linear-gradient(135deg, #F3F7FA 0 12px, #6FB9EC 12px 24px)";
-  }
-  if (owner === "b") {
-    return "repeating-linear-gradient(135deg, #F3F7FA 0 12px, #B58AD9 12px 24px)";
-  }
-  if (owner === "joint") {
-    return "repeating-linear-gradient(135deg, #6FB9EC 0 12px, #B58AD9 12px 24px)";
-  }
-  return "repeating-linear-gradient(135deg, #F3F7FA 0 10px, #6FB9EC 10px 20px, #B58AD9 20px 30px)";
+// Celebrity chores are the only dark bubbles on the field. That is a value
+// shift, not a hue shift, so no decorative bubbleHue() pastel can collide with
+// it, and unlike stripes it still reads at a 14px radius.
+export const CELEBRITY_BUBBLE_BACKGROUND =
+  "radial-gradient(circle at 32% 30%, #2E5F76, #17313F 62%, #0E2029)";
+
+// Label ink flips to light on that dark fill.
+export const CELEBRITY_INK = "#EAF6FA";
+
+// The spotlight is a moving light *source*, not a ring: a specular glint travels
+// the rim while a warm wash tracks it across the orb's own surface, so the bubble
+// reads as lit rather than as wearing a halo. Radially symmetric on purpose — a
+// stage spotlight needs a floor for its pool and a fixed "up" for its beam, and
+// this field is a floorless void with algorithmic, drag-anywhere placement.
+// Overdue keeps the identical mechanism and only shifts colour and tempo, so the
+// celebrity identity survives exactly when the chore matters most.
+export function celebritySpotlight(overdue) {
+  return overdue
+    ? { rgb: "255,77,97", seconds: 2, ring: "#8A3340", clockInk: "#FF8A9B" }
+    : { rgb: "255,212,94", seconds: 4.6, ring: "#7A5C1E", clockInk: "#7FA3AC" };
 }
 
 export function celebrityDueDaysForForm(chore, at = Date.now()) {
