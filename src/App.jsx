@@ -451,6 +451,10 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                   position: "absolute",
                   width: n.r * 2,
                   height: n.r * 2,
+                  // Above the orb: as a positioned sibling declared before it,
+                  // the glint would otherwise be painted over and read as a
+                  // light source eclipsed by the very bubble it is lighting.
+                  zIndex: 2,
                   animation: `celebritySpotlight ${spotlight.seconds}s linear infinite`,
                   pointerEvents: "none",
                 }}
@@ -459,7 +463,9 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                   style={{
                     position: "absolute",
                     left: "50%",
-                    top: -glintSize * 0.34,
+                    // Centred on the rim, so the glow spills evenly onto the orb
+                    // and out over the field.
+                    top: -glintSize / 2,
                     transform: "translateX(-50%)",
                     width: glintSize,
                     height: glintSize,
