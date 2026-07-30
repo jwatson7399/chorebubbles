@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  CELEBRITY_BUBBLE_BACKGROUND,
   DAY_MS,
   celebrityChoreForSave,
   celebrityCompletionOrder,
   celebrityDueDaysForForm,
-  celebrityOwnerBadge,
-  celebrityOwnerBackground,
+  celebrityOwnerBadgeParts,
+  celebritySpotlight,
   celebrityTiming,
   isCelebrityChore,
   isPreferredCelebrityActor,
@@ -33,20 +34,64 @@ describe("celebrity chore timing", () => {
 describe("celebrity chore ownership", () => {
   const settings = { nameA: "Julian", nameB: "Kristine" };
 
-  it("uses the approved compact ownership labels", () => {
-    expect(celebrityOwnerBadge("a", settings)).toBe("J");
-    expect(celebrityOwnerBadge("joint", settings)).toBe("J+K");
-    expect(celebrityOwnerBadge("b", settings)).toBe("K");
-    expect(celebrityOwnerBadge("either", settings)).toBe("J or K");
+  it("gives a sole owner their initial alone", () => {
+    expect(celebrityOwnerBadgeParts("a", settings)).toEqual([{ text: "J", tone: "a" }]);
+    expect(celebrityOwnerBadgeParts("b", settings)).toEqual([{ text: "K", tone: "b" }]);
   });
 
-  it("uses distinct stripe palettes for every ownership mode", () => {
-    const backgrounds = ["a", "joint", "b", "either"].map(celebrityOwnerBackground);
-    expect(new Set(backgrounds).size).toBe(4);
-    expect(celebrityOwnerBackground("a")).toContain("#6FB9EC");
-    expect(celebrityOwnerBackground("b")).toContain("#B58AD9");
-    expect(celebrityOwnerBackground("joint")).not.toContain("#F3F7FA");
-    expect(celebrityOwnerBackground("either")).toContain("#F3F7FA");
+  it("separates shared ownership so each initial keeps its own person tint", () => {
+    expect(celebrityOwnerBadgeParts("joint", settings)).toEqual([
+      { text: "J", tone: "a" },
+      { text: "+", tone: "muted" },
+      { text: "K", tone: "b" },
+    ]);
+    expect(celebrityOwnerBadgeParts("either", settings)).toEqual([
+      { text: "J", tone: "a" },
+      { text: "/", tone: "muted" },
+      { text: "K", tone: "b" },
+    ]);
+  });
+
+  it("falls back to J and K when the household has not been named", () => {
+    expect(celebrityOwnerBadgeParts("joint", {})).toEqual([
+      { text: "J", tone: "a" },
+      { text: "+", tone: "muted" },
+      { text: "K", tone: "b" },
+    ]);
+  });
+
+  // Ownership now rides on text, not on the fill, so the fill is free to do the
+  // one job it can do at any size: mark the chore as celebrity. It must stay
+  // clear of the pastel band every decorative bubble lives in (bubbleHue, L=68%),
+  // otherwise a random chore hue can impersonate a celebrity chore.
+  it("fills celebrity bubbles far darker than the decorative pastel field", () => {
+    const stops = CELEBRITY_BUBBLE_BACKGROUND.match(/#[0-9a-fA-F]{6}/g) ?? [];
+    expect(stops.length).toBeGreaterThan(1);
+    const lightness = (hex) => {
+      const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+      return (Math.max(...channels) + Math.min(...channels)) / 2;
+    };
+    expect(Math.max(...stops.map(lightness))).toBeLessThan(0.45);
+  });
+
+  // Overdue must keep the spotlight rather than swap to a different effect, so
+  // the celebrity identity survives exactly when the chore matters most. Only
+  // the colour and the tempo are allowed to change.
+  it("keeps one spotlight mechanism and only shifts its colour and tempo", () => {
+    const calm = celebritySpotlight(false);
+    const late = celebritySpotlight(true);
+    expect(Object.keys(late).sort()).toEqual(Object.keys(calm).sort());
+    expect(late.rgb).not.toBe(calm.rgb);
+    expect(late.seconds).toBeLessThan(calm.seconds);
+  });
+
+  it("keeps the spotlight ring dim so the travelling light stays the brightest thing", () => {
+    const luminance = (hex) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    expect(luminance(celebritySpotlight(false).ring)).toBeLessThan(0.4);
+    expect(luminance(celebritySpotlight(true).ring)).toBeLessThan(0.4);
   });
 
   it("puts the assigned completion action first but keeps escape hatches", () => {

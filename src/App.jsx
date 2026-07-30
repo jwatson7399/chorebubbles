@@ -46,13 +46,16 @@ import { bubbleHitDiameter, clampBubbleRadius, rankBubbleTargets, usesCompactBub
 import { creditedCompletionIds, shouldPulseHealth } from "./healthPulse.js";
 import { applyOperation, defaultData, normalizeData } from "./dataModel.js";
 import {
+  CELEBRITY_BUBBLE_BACKGROUND,
+  CELEBRITY_INK,
   CELEBRITY_OWNERS,
   DAY_MS,
   celebrityChoreForSave,
   celebrityCompletionOrder,
   celebrityDueDaysForForm,
-  celebrityOwnerBackground,
+  celebrityOwnerBadgeParts,
   celebrityOwnerLabel,
+  celebritySpotlight,
   celebrityTiming,
   isCelebrityChore,
   isPreferredCelebrityActor,
@@ -82,6 +85,10 @@ import {
 
 // ChoreBubbles: a shared household chore ecosystem.
 // Bubbles swell as chores go undone. Tap to complete, drag to rearrange.
+
+// The two people the app is about. Progress bars teach these colors, so
+// celebrity ownership initials borrow them instead of inventing a palette.
+const PERSON_HUE = { a: "#6FC3FF", b: "#FF9FC0", muted: "#8FA8B2" };
 
 
 // Soft pastel color spread evenly around the wheel via the golden angle, so
@@ -399,6 +406,10 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
         const bubbleShadow = due
           ? `0 0 ${overdue ? 26 : 14}px ${n.hue}${overdue ? "AA" : "66"}, inset 0 0 12px rgba(255,255,255,0.25)`
           : "inset 0 0 10px rgba(255,255,255,0.18)";
+        const spotlight = celebritySpotlight(overdue);
+        // Both halves of the spotlight scale with the bubble, so the effect holds
+        // its proportions across the whole 0.72x-1.27x growth range.
+        const glintSize = Math.max(7, Math.round(n.r * 0.4));
         return (
           <div
             key={n.id}
@@ -430,37 +441,35 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                 : 1 + Math.round(n.prominence * 3),
             }}
           >
-            {celebrity && !overdue && (
+            {celebrity && (
+              // The light source itself, riding the rim outside the orb so its
+              // glow is free to spill onto the field.
               <span
                 aria-hidden="true"
+                className="celebrityOrbit"
                 style={{
                   position: "absolute",
-                  width: n.r * 2 + 14,
-                  height: n.r * 2 + 14,
-                  borderRadius: "50%",
-                  background: "conic-gradient(from 0deg, transparent 0 62%, rgba(255,203,69,0.08) 69%, #FFD45E 82%, rgba(255,229,151,0.12) 92%, transparent 100%)",
-                  filter: "drop-shadow(0 0 8px rgba(255,199,51,0.7))",
-                  animation: "celebritySpotlight 3.3s linear infinite",
+                  width: n.r * 2,
+                  height: n.r * 2,
+                  animation: `celebritySpotlight ${spotlight.seconds}s linear infinite`,
                   pointerEvents: "none",
                 }}
-              />
+              >
+                <span
+                  style={{
+                    position: "absolute",
+                    left: "50%",
+                    top: -glintSize * 0.34,
+                    transform: "translateX(-50%)",
+                    width: glintSize,
+                    height: glintSize,
+                    borderRadius: "50%",
+                    background: `radial-gradient(circle, rgba(255,255,255,0.95), rgba(${spotlight.rgb},0.9) 38%, rgba(${spotlight.rgb},0) 74%)`,
+                    filter: `blur(${Math.max(1, n.r * 0.03)}px) drop-shadow(0 0 ${Math.round(n.r * 0.34)}px rgba(${spotlight.rgb},0.95))`,
+                  }}
+                />
+              </span>
             )}
-            {celebrity && overdue && [0, 1].map((index) => (
-              <span
-                key={index}
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  width: n.r * 2 + 10,
-                  height: n.r * 2 + 10,
-                  borderRadius: "50%",
-                  border: "2px solid #FF4D61",
-                  boxShadow: "0 0 25px rgba(255,38,71,0.8)",
-                  animation: `celebrityAlarm 1.05s ${index * 0.52}s ease-out infinite`,
-                  pointerEvents: "none",
-                }}
-              />
-            ))}
             <div
               style={{
                 position: "relative",
@@ -469,19 +478,20 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                 flexShrink: 0,
                 borderRadius: "50%",
                 background: celebrity
-                  ? celebrityOwnerBackground(n.chore.owner)
+                  ? CELEBRITY_BUBBLE_BACKGROUND
                   : `radial-gradient(circle at 32% 30%, ${n.hue}F5, ${n.hue}AA 60%, ${n.hue}66)`,
                 boxShadow: suggested
                   ? `${bubbleShadow}, 0 0 0 3px #5FE0BB, 0 0 22px #5FE0BBDD, 0 0 42px #5FE0BB77`
                   : celebrity
-                  ? overdue
-                    ? "inset 0 0 12px rgba(255,255,255,0.25), 0 0 18px rgba(255,77,97,0.7)"
-                    : "inset 0 0 12px rgba(255,255,255,0.25), 0 0 14px rgba(255,199,51,0.42)"
+                  // No halo of its own: a static glow would compete with the
+                  // travelling light and re-create the "ring + glow" grammar that
+                  // already belongs to `suggested`.
+                  ? "inset 0 0 12px rgba(255,255,255,0.14)"
                   : bubbleShadow,
                 outline: suggested ? "2px solid #A9F7E3" : "none",
                 outlineOffset: suggested ? 3 : 0,
                 border: celebrity
-                  ? `2px solid ${overdue ? "#FF5B68" : "#FFD45E"}`
+                  ? `1.5px solid ${spotlight.ring}`
                   : due ? `2px solid ${n.hue}` : `1.5px solid ${n.hue}66`,
                 display: "flex",
                 alignItems: "center",
@@ -492,6 +502,39 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                 transition: "width 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), height 0.7s cubic-bezier(0.34, 1.4, 0.5, 1), box-shadow 0.35s ease, outline-color 0.35s ease",
               }}
             >
+              {celebrity && (
+                // The wash the glint casts on the orb's surface. It shares the
+                // glint's period so the two stay in phase, and the orb's own
+                // overflow:hidden clips it to the sphere.
+                <span
+                  aria-hidden="true"
+                  className="celebrityOrbit"
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 0,
+                    animation: `celebritySpotlight ${spotlight.seconds}s linear infinite`,
+                    pointerEvents: "none",
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: "50%",
+                      top: "-12%",
+                      transform: "translateX(-50%)",
+                      width: "132%",
+                      height: "76%",
+                      // Kept deliberately restrained: the wash has to read as
+                      // light falling on a dark sphere, not as a second fill.
+                      // Push it further and gold over the teal orb turns olive,
+                      // which costs the "only dark bubble" identity.
+                      background: `radial-gradient(ellipse at 50% 0%, rgba(${spotlight.rgb},0.30), rgba(${spotlight.rgb},0.09) 45%, rgba(${spotlight.rgb},0) 72%)`,
+                      filter: `blur(${Math.max(3, n.r * 0.11)}px)`,
+                    }}
+                  />
+                </span>
+              )}
               {popId === n.id && (
                 <span style={{ position: "absolute", top: -14, right: -6, fontSize: 20, animation: "sparkleUp 0.9s ease-out forwards", pointerEvents: "none" }}>✨</span>
               )}
@@ -516,6 +559,11 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
               {showInlineLabel && (
                 <div
                   style={{
+                    // Positioned so the label stays above the celebrity spotlight
+                    // wash, which is absolutely positioned and would otherwise
+                    // paint over static flow content.
+                    position: "relative",
+                    zIndex: 1,
                     display: "flex",
                     flexDirection: "column",
                     alignItems: "center",
@@ -532,7 +580,7 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                       fontFamily: "'Baloo 2', sans-serif",
                       fontWeight: 700,
                       fontSize: Math.max(8, Math.min(n.r * 0.28, 16)),
-                      color: "#0C1B26",
+                      color: celebrity ? CELEBRITY_INK : "#0C1B26",
                       textAlign: "center",
                       lineHeight: 1.06,
                       width: "100%",
@@ -545,19 +593,31 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                   >
                     {n.chore.name}
                   </span>
-                  {!compactLabel && (
+                  {/* Ownership outranks the countdown: it is the one thing a
+                      celebrity bubble cannot say any other way, so it keeps this
+                      line even at compact sizes where points are dropped. */}
+                  {(celebrity || !compactLabel) && (
                     <span
                       style={{
                         fontFamily: "'Baloo 2', sans-serif",
                         fontWeight: 800,
                         fontSize: Math.max(9, Math.min(n.r * 0.22, 12)),
                         color: "#0C1B26",
-                      opacity: 0.62,
+                        opacity: celebrity ? 1 : 0.62,
                         lineHeight: 1,
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {celebrity ? n.timing.shortLabel : `${n.chore.difficulty} pt${n.chore.difficulty === 1 ? "" : "s"}`}
+                      {celebrity ? (
+                        <>
+                          {celebrityOwnerBadgeParts(n.chore.owner, settings).map((part, index) => (
+                            <span key={index} style={{ color: PERSON_HUE[part.tone] }}>{part.text}</span>
+                          ))}
+                          {!compactLabel && (
+                            <span style={{ color: spotlight.clockInk }}>{` · ${n.timing.shortLabel}`}</span>
+                          )}
+                        </>
+                      ) : `${n.chore.difficulty} pt${n.chore.difficulty === 1 ? "" : "s"}`}
                     </span>
                   )}
                 </div>
@@ -1799,7 +1859,12 @@ export default function ChoreBubbles() {
         @keyframes noticeGlow { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.16)} }
         @keyframes wilt { 0%,100%{transform:rotate(-6deg) translateY(1px)} 50%{transform:rotate(-10deg) translateY(3px)} }
         @keyframes celebritySpotlight { to { transform:rotate(360deg) } }
-        @keyframes celebrityAlarm { 0%{transform:scale(.9);opacity:.95} 75%,100%{transform:scale(1.25);opacity:0} }
+        /* Stopping the orbit leaves the glint and its wash parked at the top of
+           the orb, so a celebrity bubble still reads as lit — just from a fixed
+           source rather than a travelling one. */
+        @media (prefers-reduced-motion: reduce) {
+          .celebrityOrbit { animation: none !important; }
+        }
         @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
         * { box-sizing: border-box; margin: 0; }
         button:active { transform: scale(0.96); }
