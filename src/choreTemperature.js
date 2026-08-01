@@ -26,6 +26,19 @@ const TIER_BY_STREAK = {
 
 const clampStreak = (value) => Math.max(STREAK_MIN, Math.min(STREAK_MAX, value));
 
+// Cold and frozen share one construction: an icy glyph carrying a glow that
+// washes onto the bubble. Only frozen sets it moving. That matters because ❄️
+// and 🧊 are indistinguishable at the ~13px the sigil actually renders at, while
+// "travelling" against "parked" reads instantly at any size — so the tier that
+// pays the larger thaw bonus is told by behaviour rather than by glyph shape.
+export const FROST_RGB = "168,224,255";
+
+export function frostTreatment(tier) {
+  if (tier === "frozen") return { rgb: FROST_RGB, orbit: true, seconds: 5.2 };
+  if (tier === "cold") return { rgb: FROST_RGB, orbit: false, seconds: null };
+  return null;
+}
+
 // Days between two moments, minus any household pause covering them — the same
 // adjustment activeDaysSinceDone makes, so a vacation never chills the board.
 function activeDaysBetween(pauses, from, to) {

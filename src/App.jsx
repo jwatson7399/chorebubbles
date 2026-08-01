@@ -40,7 +40,7 @@ import {
   completionPoints,
   lastDoneLabel,
 } from "./choreHistory.js";
-import { choreTemperature, streakLabel, thawBonus } from "./choreTemperature.js";
+import { choreTemperature, frostTreatment, streakLabel, thawBonus } from "./choreTemperature.js";
 import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
 import { bubbleHitDiameter, clampBubbleRadius, rankBubbleTargets, usesCompactBubbleLabel } from "./bubblePresentation.js";
 import { creditedCompletionIds, shouldPulseHealth } from "./healthPulse.js";
@@ -403,6 +403,10 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
         // Below the inline-label threshold the bubble is roughly 28px across, too small
         // to carry an emoji pair legibly.
         const sigil = showInlineLabel ? n.temp?.sigil : "";
+        const frost = showInlineLabel ? frostTreatment(n.temp?.tier) : null;
+        // The frozen cube rides the rim, so it lives outside the orb where
+        // overflow:hidden cannot clip it. Cold keeps the corner badge.
+        const cubeSize = Math.max(11, Math.round(n.r * 0.44));
         const bubbleShadow = due
           ? `0 0 ${overdue ? 26 : 14}px ${n.hue}${overdue ? "AA" : "66"}, inset 0 0 12px rgba(255,255,255,0.25)`
           : "inset 0 0 10px rgba(255,255,255,0.18)";
@@ -476,6 +480,59 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                 />
               </span>
             )}
+            {frost?.orbit && (
+              // The cube is carried around the rim; the counter-rotation keeps
+              // it level so it stays recognisable as an ice cube rather than
+              // tumbling into an unreadable smear.
+              <span
+                aria-hidden="true"
+                className="frostOrbit"
+                style={{
+                  position: "absolute",
+                  width: n.r * 2,
+                  height: n.r * 2,
+                  zIndex: 2,
+                  animation: `frostOrbit ${frost.seconds}s linear infinite`,
+                  pointerEvents: "none",
+                }}
+              >
+                <span
+                  style={{
+                    position: "absolute",
+                    left: "50%",
+                    top: -cubeSize / 2,
+                    transform: "translateX(-50%)",
+                    width: cubeSize,
+                    height: cubeSize,
+                    display: "grid",
+                    placeItems: "center",
+                  }}
+                >
+                  <span
+                    style={{
+                      position: "absolute",
+                      width: cubeSize * 2.3,
+                      height: cubeSize * 2.3,
+                      borderRadius: "50%",
+                      background: `radial-gradient(circle, rgba(${frost.rgb},0.85) 0 14%, rgba(${frost.rgb},0.38) 38%, rgba(${frost.rgb},0) 72%)`,
+                      filter: `blur(${Math.max(1, n.r * 0.045)}px)`,
+                    }}
+                  />
+                  <span
+                    className="frostOrbit"
+                    style={{
+                      position: "relative",
+                      fontSize: cubeSize,
+                      lineHeight: 1,
+                      animation: `frostOrbitCounter ${frost.seconds}s linear infinite`,
+                      filter: `drop-shadow(0 0 ${Math.round(n.r * 0.2)}px rgba(${frost.rgb},0.95)) drop-shadow(0 1px 2px rgba(0,0,0,0.5))`,
+                    }}
+                  >
+                    {sigil}
+                  </span>
+                </span>
+              </span>
+            )}
             <div
               style={{
                 position: "relative",
@@ -544,18 +601,66 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
               {popId === n.id && (
                 <span style={{ position: "absolute", top: -14, right: -6, fontSize: 20, animation: "sparkleUp 0.9s ease-out forwards", pointerEvents: "none" }}>✨</span>
               )}
-              {sigil && (
+              {frost && (
+                // The light the glyph casts on the bubble's own surface. Frozen
+                // carries it around in step with the cube; cold parks it under
+                // the corner badge. Same construction, motion the only variable.
+                frost.orbit ? (
+                  <span
+                    aria-hidden="true"
+                    className="frostOrbit"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      zIndex: 0,
+                      animation: `frostOrbit ${frost.seconds}s linear infinite`,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: "50%",
+                        top: "-14%",
+                        transform: "translateX(-50%)",
+                        width: "140%",
+                        height: "82%",
+                        background: `radial-gradient(ellipse at 50% 0%, rgba(${frost.rgb},0.52), rgba(${frost.rgb},0.16) 46%, rgba(${frost.rgb},0) 74%)`,
+                        filter: `blur(${Math.max(3, n.r * 0.12)}px)`,
+                      }}
+                    />
+                  </span>
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      zIndex: 0,
+                      background: `radial-gradient(ellipse at 82% 14%, rgba(${frost.rgb},0.42), rgba(${frost.rgb},0.12) 44%, rgba(${frost.rgb},0) 72%)`,
+                      pointerEvents: "none",
+                    }}
+                  />
+                )
+              )}
+              {sigil && !frost?.orbit && (
                 <span
                   aria-hidden="true"
                   style={{
                     position: "absolute",
                     top: "5%",
                     right: "7%",
-                    fontSize: Math.max(9, Math.min(n.r * 0.28, 15)),
+                    // Frost enlarges its glyph and lights it, because at the old
+                    // capped 15px a pale snowflake on a pale bubble reads as an
+                    // unmarked bubble.
+                    fontSize: frost ? Math.max(11, n.r * 0.36) : Math.max(9, Math.min(n.r * 0.28, 15)),
                     lineHeight: 1,
                     letterSpacing: "-0.22em",
                     whiteSpace: "nowrap",
-                    filter: "drop-shadow(0 1px 1.5px rgba(0,0,0,0.5))",
+                    zIndex: 2,
+                    filter: frost
+                      ? `drop-shadow(0 0 ${Math.round(n.r * 0.18)}px rgba(${frost.rgb},0.95)) drop-shadow(0 1px 1.5px rgba(0,0,0,0.55))`
+                      : "drop-shadow(0 1px 1.5px rgba(0,0,0,0.5))",
                     pointerEvents: "none",
                   }}
                 >
@@ -1865,11 +1970,15 @@ export default function ChoreBubbles() {
         @keyframes noticeGlow { 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.16)} }
         @keyframes wilt { 0%,100%{transform:rotate(-6deg) translateY(1px)} 50%{transform:rotate(-10deg) translateY(3px)} }
         @keyframes celebritySpotlight { to { transform:rotate(360deg) } }
+        @keyframes frostOrbit { to { transform:rotate(360deg) } }
+        @keyframes frostOrbitCounter { to { transform:rotate(-360deg) } }
         /* Stopping the orbit leaves the glint and its wash parked at the top of
            the orb, so a celebrity bubble still reads as lit — just from a fixed
-           source rather than a travelling one. */
+           source rather than a travelling one. A parked frozen cube still sits
+           on the rim with its glow, where cold's badge sits inside the corner,
+           so the two tiers stay distinguishable without any motion. */
         @media (prefers-reduced-motion: reduce) {
-          .celebrityOrbit { animation: none !important; }
+          .celebrityOrbit, .frostOrbit { animation: none !important; }
         }
         @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
         * { box-sizing: border-box; margin: 0; }
