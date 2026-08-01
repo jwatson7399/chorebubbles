@@ -4,6 +4,7 @@ import {
   STREAK_MIN,
   choreStreak,
   choreTemperature,
+  frostTreatment,
   streakLabel,
   thawBonus,
 } from "./choreTemperature.js";
@@ -166,5 +167,26 @@ describe("describing a streak", () => {
     expect(streakLabel(0)).toBe("Neutral");
     expect(streakLabel(-1)).toBe("Cold streak");
     expect(streakLabel(-2)).toBe("Frozen streak");
+  });
+});
+
+describe("frost treatment", () => {
+  // Cold and frozen must stay one construction so they read as the same
+  // material, with motion as the only thing separating them — ❄️ against 🧊 at
+  // the size the sigil renders is not a distinction anyone can actually see.
+  it("gives both chilled tiers the same shape and lets only frozen move", () => {
+    const cold = frostTreatment("cold");
+    const frozen = frostTreatment("frozen");
+    expect(Object.keys(frozen).sort()).toEqual(Object.keys(cold).sort());
+    expect(cold.rgb).toBe(frozen.rgb);
+    expect(cold.orbit).toBe(false);
+    expect(frozen.orbit).toBe(true);
+    expect(frozen.seconds).toBeGreaterThan(0);
+  });
+
+  it("leaves every other tier untreated", () => {
+    for (const tier of ["neutral", "warm", "scorching", undefined]) {
+      expect(frostTreatment(tier)).toBeNull();
+    }
   });
 });
