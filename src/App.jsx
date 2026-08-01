@@ -107,6 +107,25 @@ function hslToHex(h, s, l) {
 }
 const bubbleHue = (i) => hslToHex((i * 137.508) % 360, 62, 68);
 
+// The soft round light a frost glyph sits in. Cold and frozen render this same
+// element — one parked, one carried — so the two can never drift into looking
+// like different materials.
+function frostGlint(glyphSize, rgb, blurPx) {
+  return (
+    <span
+      style={{
+        position: "absolute",
+        width: glyphSize * 2.3,
+        height: glyphSize * 2.3,
+        borderRadius: "50%",
+        background: `radial-gradient(circle, rgba(${rgb},0.85) 0 14%, rgba(${rgb},0.38) 38%, rgba(${rgb},0) 72%)`,
+        filter: `blur(${blurPx}px)`,
+        pointerEvents: "none",
+      }}
+    />
+  );
+}
+
 const STARTERS = [
   { name: "Dishes", importance: 4, difficulty: 1, freqDays: 1, service: false },
   { name: "Kitchen counters", importance: 4, difficulty: 1, freqDays: 2, service: true },
@@ -407,6 +426,9 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
         // The frozen cube rides the rim, so it lives outside the orb where
         // overflow:hidden cannot clip it. Cold keeps the corner badge.
         const cubeSize = Math.max(11, Math.round(n.r * 0.44));
+        const glyphSize = frost
+          ? Math.max(11, Math.round(n.r * 0.36))
+          : Math.max(9, Math.min(n.r * 0.28, 15));
         const bubbleShadow = due
           ? `0 0 ${overdue ? 26 : 14}px ${n.hue}${overdue ? "AA" : "66"}, inset 0 0 12px rgba(255,255,255,0.25)`
           : "inset 0 0 10px rgba(255,255,255,0.18)";
@@ -508,16 +530,7 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                     placeItems: "center",
                   }}
                 >
-                  <span
-                    style={{
-                      position: "absolute",
-                      width: cubeSize * 2.3,
-                      height: cubeSize * 2.3,
-                      borderRadius: "50%",
-                      background: `radial-gradient(circle, rgba(${frost.rgb},0.85) 0 14%, rgba(${frost.rgb},0.38) 38%, rgba(${frost.rgb},0) 72%)`,
-                      filter: `blur(${Math.max(1, n.r * 0.045)}px)`,
-                    }}
-                  />
+                  {frostGlint(cubeSize, frost.rgb, Math.max(1, n.r * 0.045))}
                   <span
                     className="frostOrbit"
                     style={{
@@ -601,47 +614,33 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
               {popId === n.id && (
                 <span style={{ position: "absolute", top: -14, right: -6, fontSize: 20, animation: "sparkleUp 0.9s ease-out forwards", pointerEvents: "none" }}>✨</span>
               )}
-              {frost && (
-                // The light the glyph casts on the bubble's own surface. Frozen
-                // carries it around in step with the cube; cold parks it under
-                // the corner badge. Same construction, motion the only variable.
-                frost.orbit ? (
+              {frost?.orbit && (
+                // The cube travels outside the orb, so the light it throws onto
+                // the surface has to be painted here, in step with it.
+                <span
+                  aria-hidden="true"
+                  className="frostOrbit"
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    zIndex: 0,
+                    animation: `frostOrbit ${frost.seconds}s linear infinite`,
+                    pointerEvents: "none",
+                  }}
+                >
                   <span
-                    aria-hidden="true"
-                    className="frostOrbit"
                     style={{
                       position: "absolute",
-                      inset: 0,
-                      zIndex: 0,
-                      animation: `frostOrbit ${frost.seconds}s linear infinite`,
-                      pointerEvents: "none",
-                    }}
-                  >
-                    <span
-                      style={{
-                        position: "absolute",
-                        left: "50%",
-                        top: "-14%",
-                        transform: "translateX(-50%)",
-                        width: "140%",
-                        height: "82%",
-                        background: `radial-gradient(ellipse at 50% 0%, rgba(${frost.rgb},0.52), rgba(${frost.rgb},0.16) 46%, rgba(${frost.rgb},0) 74%)`,
-                        filter: `blur(${Math.max(3, n.r * 0.12)}px)`,
-                      }}
-                    />
-                  </span>
-                ) : (
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      zIndex: 0,
-                      background: `radial-gradient(ellipse at 82% 14%, rgba(${frost.rgb},0.42), rgba(${frost.rgb},0.12) 44%, rgba(${frost.rgb},0) 72%)`,
-                      pointerEvents: "none",
+                      left: "50%",
+                      top: "-14%",
+                      transform: "translateX(-50%)",
+                      width: "140%",
+                      height: "82%",
+                      background: `radial-gradient(ellipse at 50% 0%, rgba(${frost.rgb},0.52), rgba(${frost.rgb},0.16) 46%, rgba(${frost.rgb},0) 74%)`,
+                      filter: `blur(${Math.max(3, n.r * 0.12)}px)`,
                     }}
                   />
-                )
+                </span>
               )}
               {sigil && !frost?.orbit && (
                 <span
@@ -650,21 +649,34 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                     position: "absolute",
                     top: "5%",
                     right: "7%",
-                    // Frost enlarges its glyph and lights it, because at the old
-                    // capped 15px a pale snowflake on a pale bubble reads as an
-                    // unmarked bubble.
-                    fontSize: frost ? Math.max(11, n.r * 0.36) : Math.max(9, Math.min(n.r * 0.28, 15)),
-                    lineHeight: 1,
-                    letterSpacing: "-0.22em",
-                    whiteSpace: "nowrap",
+                    width: glyphSize,
+                    height: glyphSize,
+                    display: "grid",
+                    placeItems: "center",
                     zIndex: 2,
-                    filter: frost
-                      ? `drop-shadow(0 0 ${Math.round(n.r * 0.18)}px rgba(${frost.rgb},0.95)) drop-shadow(0 1px 1.5px rgba(0,0,0,0.55))`
-                      : "drop-shadow(0 1px 1.5px rgba(0,0,0,0.5))",
                     pointerEvents: "none",
                   }}
                 >
-                  {sigil}
+                  {/* Cold sits in the same round glint the cube carries — it is
+                      simply parked. Its blur is what keeps it reading as light
+                      rather than as a panel behind the glyph. */}
+                  {frost && frostGlint(glyphSize, frost.rgb, Math.max(1, n.r * 0.045))}
+                  <span
+                    style={{
+                      position: "relative",
+                      // Frost enlarges its glyph, because at the old capped 15px
+                      // a pale snowflake on a pale bubble reads as no mark at all.
+                      fontSize: glyphSize,
+                      lineHeight: 1,
+                      letterSpacing: "-0.22em",
+                      whiteSpace: "nowrap",
+                      filter: frost
+                        ? `drop-shadow(0 0 ${Math.round(n.r * 0.2)}px rgba(${frost.rgb},0.95)) drop-shadow(0 1px 2px rgba(0,0,0,0.5))`
+                        : "drop-shadow(0 1px 1.5px rgba(0,0,0,0.5))",
+                    }}
+                  >
+                    {sigil}
+                  </span>
                 </span>
               )}
               {showInlineLabel && (
