@@ -2134,10 +2134,15 @@ export default function ChoreBubbles() {
                   ✕
                 </button>
               )}
+              <button
+                onClick={openService}
+                aria-label="Log a cleaning service visit"
+                title="Cleaning service came"
+                style={{ ...btnStyle("#0F2530", "#5FE0BB"), width: 52, flexShrink: 0, padding: 0, border: "1px solid #1E4152", fontSize: 18 }}
+              >
+                🧹
+              </button>
             </div>
-            <button onClick={openService} style={{ ...btnStyle("#0F2530", "#5FE0BB"), width: "100%", border: "1px solid #1E4152" }}>
-              🧹 Cleaning service came
-            </button>
           </div>
         </div>
       )}
