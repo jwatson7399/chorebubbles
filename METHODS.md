@@ -541,8 +541,10 @@ the ±2 caps, pause-adjusted time, every sigil, and the detail-sheet wording.
 - **The reward is a flat capped bonus, not a multiplier.** Two constraints ruled multipliers
   out. Points are deliberately whole numbers (§1), and a ×1.5 reintroduces exactly the drifting
   decimals that model was built to remove. And with a default goal of 14 and difficulty capped
-  at 5, a naive ×3 pays 15 — one tap clearing an entire week. Cold pays +1 (+2 at importance
-  ≥ 4); frozen pays +2 (+3 at importance ≥ 4).
+  at 5, a naive ×3 pays 15 — one tap clearing an entire week. One-point chores are excluded
+  because their frequency would make the reward routine rather than exceptional. For chores
+  worth at least two points, cold pays +1 (+2 at importance ≥ 4); frozen pays +2 (+3 at
+  importance ≥ 4).
 - **The bonus is advertised before the tap, not revealed after.** A reward you only discover
   afterwards is a pleasant surprise once and motivates nothing thereafter; the point is that a
   frozen bubble should look *worth attacking*.

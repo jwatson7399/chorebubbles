@@ -103,6 +103,10 @@ export function streakLabel(streak) {
 // single tap can swallow a week's goal. Neglect still costs more than it pays back.
 export function thawBonus(chore, tier) {
   if (tier !== "cold" && tier !== "frozen") return 0;
+  // One-point chores recur often enough that neglecting them should not create a
+  // steady bonus faucet. They still show their temperature; rescue just pays the
+  // chore's normal effort value.
+  if (Number(chore?.difficulty) === 1) return 0;
   const important = (Number(chore?.importance) || 0) >= 4;
   if (tier === "frozen") return important ? 3 : 2;
   return important ? 2 : 1;

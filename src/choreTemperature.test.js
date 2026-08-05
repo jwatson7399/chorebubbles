@@ -136,25 +136,30 @@ describe("tiers", () => {
 
 describe("thaw bonus", () => {
   it("pays nothing for a chore that is not cold", () => {
-    expect(thawBonus({ importance: 5 }, "scorching")).toBe(0);
-    expect(thawBonus({ importance: 5 }, "warm")).toBe(0);
-    expect(thawBonus({ importance: 5 }, "neutral")).toBe(0);
+    expect(thawBonus({ difficulty: 2, importance: 5 }, "scorching")).toBe(0);
+    expect(thawBonus({ difficulty: 2, importance: 5 }, "warm")).toBe(0);
+    expect(thawBonus({ difficulty: 2, importance: 5 }, "neutral")).toBe(0);
+  });
+
+  it("does not pay for one-point chores, even when they are cold or frozen", () => {
+    expect(thawBonus({ difficulty: 1, importance: 2 }, "cold")).toBe(0);
+    expect(thawBonus({ difficulty: 1, importance: 5 }, "frozen")).toBe(0);
   });
 
   it("pays more for frozen chores than merely cold ones", () => {
-    expect(thawBonus({ importance: 2 }, "cold")).toBe(1);
-    expect(thawBonus({ importance: 2 }, "frozen")).toBe(2);
+    expect(thawBonus({ difficulty: 2, importance: 2 }, "cold")).toBe(1);
+    expect(thawBonus({ difficulty: 2, importance: 2 }, "frozen")).toBe(2);
   });
 
   it("pays more for important chores", () => {
-    expect(thawBonus({ importance: 4 }, "cold")).toBe(2);
-    expect(thawBonus({ importance: 5 }, "frozen")).toBe(3);
+    expect(thawBonus({ difficulty: 2, importance: 4 }, "cold")).toBe(2);
+    expect(thawBonus({ difficulty: 2, importance: 5 }, "frozen")).toBe(3);
   });
 
   it("never pays more than three points", () => {
     for (const importance of [1, 2, 3, 4, 5]) {
       for (const tier of ["scorching", "warm", "neutral", "cold", "frozen"]) {
-        expect(thawBonus({ importance }, tier)).toBeLessThanOrEqual(3);
+        expect(thawBonus({ difficulty: 2, importance }, tier)).toBeLessThanOrEqual(3);
       }
     }
   });
