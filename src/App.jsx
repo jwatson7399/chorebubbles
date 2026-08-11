@@ -664,9 +664,14 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                       lineHeight: 1,
                       letterSpacing: "-0.22em",
                       whiteSpace: "nowrap",
-                      filter: frost
-                        ? `drop-shadow(0 0 ${Math.round(n.r * 0.2)}px rgba(${frost.rgb},0.95)) drop-shadow(0 1px 2px rgba(0,0,0,0.5))`
-                        : "drop-shadow(0 1px 1.5px rgba(0,0,0,0.5))",
+                      // The parked snowflake takes the same plain shadow every
+                      // other sigil takes. A wide coloured drop-shadow here is
+                      // what Safari was cutting into a hard square: the halo
+                      // spills far past the glyph's box, and the compositor
+                      // rasterises the filter to that box, so the soft glow
+                      // ends in a straight edge. Size the frost read into the
+                      // glyph itself instead of into light around it.
+                      filter: "drop-shadow(0 1px 1.5px rgba(0,0,0,0.5))",
                     }}
                   >
                     {sigil}
