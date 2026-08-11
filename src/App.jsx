@@ -107,9 +107,7 @@ function hslToHex(h, s, l) {
 }
 const bubbleHue = (i) => hslToHex((i * 137.508) % 360, 62, 68);
 
-// The soft round light a frost glyph sits in. Cold and frozen render this same
-// element — one parked, one carried — so the two can never drift into looking
-// like different materials.
+// The soft round light carried by the frozen ice cube.
 function frostGlint(glyphSize, rgb, blurPx) {
   return (
     <span
@@ -530,7 +528,7 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                     placeItems: "center",
                   }}
                 >
-                  {frostGlint(cubeSize, frost.rgb, Math.max(1, n.r * 0.045))}
+                  {frost.glint && frostGlint(cubeSize, frost.rgb, Math.max(1, n.r * 0.045))}
                   <span
                     className="frostOrbit"
                     style={{
@@ -657,10 +655,6 @@ function BubbleField({ chores, completions, pauses, onTap, onAddCelebrity, popId
                     pointerEvents: "none",
                   }}
                 >
-                  {/* Cold sits in the same round glint the cube carries — it is
-                      simply parked. Its blur is what keeps it reading as light
-                      rather than as a panel behind the glyph. */}
-                  {frost && frostGlint(glyphSize, frost.rgb, Math.max(1, n.r * 0.045))}
                   <span
                     style={{
                       position: "relative",

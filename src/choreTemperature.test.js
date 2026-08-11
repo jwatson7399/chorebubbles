@@ -176,14 +176,13 @@ describe("describing a streak", () => {
 });
 
 describe("frost treatment", () => {
-  // Cold and frozen must stay one construction so they read as the same
-  // material, with motion as the only thing separating them — ❄️ against 🧊 at
-  // the size the sigil renders is not a distinction anyone can actually see.
-  it("gives both chilled tiers the same shape and lets only frozen move", () => {
+  it("shares the icy color but reserves the glint and motion for frozen chores", () => {
     const cold = frostTreatment("cold");
     const frozen = frostTreatment("frozen");
     expect(Object.keys(frozen).sort()).toEqual(Object.keys(cold).sort());
     expect(cold.rgb).toBe(frozen.rgb);
+    expect(cold.glint).toBe(false);
+    expect(frozen.glint).toBe(true);
     expect(cold.orbit).toBe(false);
     expect(frozen.orbit).toBe(true);
     expect(frozen.seconds).toBeGreaterThan(0);
