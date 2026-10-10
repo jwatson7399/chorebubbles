@@ -570,8 +570,76 @@ the ±2 caps, pause-adjusted time, every sigil, and the detail-sheet wording.
 
 ---
 
+## 15. Welcome-back fresh start: a clean slate before the frozen board
+
+**Objective.** The request was a reset "for when the app completely gets away from us",
+without "the shame of opening it to all the bubbles frozen". The temperature layer (§14) had
+made a long lapse brutally legible: open the app after weeks away and every bubble wears a
+🧊, the house face reads 🥀 at 0%, and the first thing either person sees is the size of the
+backlog.
+
+**Methodology / data.** Two findings reframed the ask.
+
+- **The local checkout was 36 commits behind `origin/main`.** "Frozen" turned out to be
+  literal, referring to the §14 temperature layer, which existed only upstream. Reading the
+  stale tree first would have produced a confident answer about a different app.
+- **A reset already existed.** "Reset all bubbles to fresh" (`resetBubbles`, Chores → Board
+  maintenance) writes a no-points `by: "reset"` completion for every recurring chore. Under
+  §14's rule that service and reset completions count as done, a late reset clears negative
+  streaks to zero, so it already thaws the whole board. The missing pieces were
+  discoverability and timing: the button sat below the entire chore list, reachable only
+  after looking at the frozen board.
+
+So the work was surfacing, not new reset machinery. On open, when half or more of the
+recurring chores are frozen, a "Welcome back 🌱" sheet appears over an opaque backdrop that
+hides the board entirely. Its primary action, "Start fresh", runs the existing reset. Its
+secondary action, "Show me the board", dismisses it.
+
+**Results.** `src/freshStart.js` holds the trigger as pure logic: `boardGotAway` for the
+frozen share and `shouldOfferFreshStart` for the per-phone quiet window. Nine tests cover the
+empty board, the half threshold, celebrity exclusion, a reset thawing the board,
+pause-adjusted time, and both edges of the quiet window. A deliberate mutation, raising the
+threshold to 0.6, failed the half-threshold test, so the tests can fail. 150 tests pass and
+the build is clean. In the browser, a seeded board of six chores untouched for 60 days opened
+to the sheet. "Start fresh" took it to 100% 🥰🌱 with no ice and an Undo toast, Undo restored
+the frozen board exactly, and declining kept the sheet away across reloads.
+
+**Design rationale / notes.**
+- **Frozen share, not health score, triggers it.** The complaint was specifically about frozen
+  bubbles, and 🧊 means at least two missed cycles. That is a lapse, not a slow week. A health
+  threshold would fire on ordinary busy stretches, where the right response is doing chores,
+  not wiping the slate. The share counts chores rather than weighting by importance, and it
+  ignores celebrity chores, which have no streak and which the reset does not touch.
+- **The sheet hides the board instead of dimming it.** The standard modal backdrop is 72%
+  translucent, which would still show the 🥀 and the ice through it. `Modal` gained a `cover`
+  option that swaps in the app's sign-in gradient, so the board is never seen until someone
+  chooses to see it.
+- **Declining is remembered per phone for 12 hours.** The timestamp lives in localStorage
+  (`chorebubbles:freshStartOfferedAt`), not shared state. Each person decides on their own
+  phone, and a household that chose to dig out by hand is not re-prompted on every reopen.
+  The board itself is shared, so once either person starts fresh, the other phone opens to a
+  thawed board and is never asked.
+- **It is evaluated against `data`, never `view`, and skipped in the time machine.**
+  Fast-forwarding freezes bubbles by design, and the sandbox must not trigger or perform a real
+  reset. The check also waits for device identity and the one-time intro so modals never stack.
+- **Bubbles reset; history and tallies do not.** After a long lapse the seven-active-day tallies
+  are already near empty, so clearing them would buy nothing. Clearing the log would destroy the
+  record that §14's streaks and the per-chore history are built from. Reset entries appear in the
+  log as "Board reset" and award no points.
+- **The reset became undoable.** A one-tap action on a sheet that appears unbidden needs a way
+  back. The reset toast now carries Undo, which removes exactly the reset entries it wrote,
+  matching the cleaning-service pattern. The Board maintenance button gets Undo too.
+- **Known imprecision:** a reset entry counts as an on-time completion for any chore that was
+  not overdue, so it adds one step of heat to that chore. During a genuine lapse almost nothing is
+  on time, so the effect is negligible where this sheet appears. It is a property of the existing
+  reset rather than something this feature introduced.
+
+---
+
 ## Engineering practice notes
 
 - **Pure logic is extracted and unit-tested.** Scoring (`logModel.js`) and drag physics (`bubblePhysics.js`) live in standalone modules with vitest coverage (`npm test`); the React component consumes them. This keeps the testable rules independent of the UI.
 - **Local iteration before commit.** UI-sensitive changes are previewed on the Vite dev server (`npm run dev`, http://localhost:5173) and iterated with hot reload before committing — verified against `npm test` and `npm run build`, then pushed to `main` (which auto-deploys via GitHub Pages).
 - **Auth-gated screens are reachable locally.** Blanking `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `src/config.js` drops the app into local-only mode, so screens behind household sign-in can be driven end-to-end on the dev server. Restore `src/config.js` afterwards and confirm with `git diff` — the file holds live credentials and must never be committed blank.
+- **Local-only previews need not touch `src/config.js` at all.** A throwaway Vite config can alias `./config.js` to a scratch file with empty Supabase values and a `local-preview` household ID, then seed `chorebubbles:data:local-preview` in localStorage. The live credentials file is never edited, so there is nothing to forget to restore (§15).
+- **Fetch before reading.** Work lands on `main` from more than one machine and session, so a local checkout can be far behind. Run `git fetch` and fast-forward a clean tree before exploring the code, or the analysis describes an app that no longer exists (§15).
