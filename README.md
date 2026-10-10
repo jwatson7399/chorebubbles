@@ -18,6 +18,7 @@ The installable PWA runs full-screen from each phone and securely syncs shared s
 - Main-screen suggestion shuffle with glowing bubble highlights
 - Previous-period recap, household total, and shared streak
 - Cleaning-service and board resets without effort credit
+- Welcome-back fresh start offered on open once half the board has frozen over
 - Whole-household and per-person vacation pauses
 - Seven-level household health mood
 - Local time-machine sandbox for previewing bubble growth and effort windows

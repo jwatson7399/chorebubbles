@@ -44,6 +44,7 @@ import { choreTemperature, frostTreatment, streakLabel, thawBonus } from "./chor
 import { clampBubbleCenter, releaseBubbleNode } from "./bubblePhysics.js";
 import { bubbleHitDiameter, clampBubbleRadius, rankBubbleTargets, usesCompactBubbleLabel } from "./bubblePresentation.js";
 import { creditedCompletionIds, shouldPulseHealth } from "./healthPulse.js";
+import { shouldOfferFreshStart } from "./freshStart.js";
 import { applyOperation, defaultData, normalizeData } from "./dataModel.js";
 import {
   CELEBRITY_BUBBLE_BACKGROUND,
@@ -140,6 +141,7 @@ const STARTERS = [
 const uid = () => Math.random().toString(36).slice(2, 10);
 const DAY = 86400000;
 const INTRO_KEY = "chorebubbles:seenIntro:v1";
+const FRESH_START_KEY = "chorebubbles:freshStartOfferedAt";
 const realNow = () => Date.now();
 // Simulation support: shifts the app's sense of "now" forward for testing
 let TIME_OFFSET = 0;
@@ -943,11 +945,12 @@ function IntensityPicker({ value, onChange, compact = false }) {
   );
 }
 
-function Modal({ children, onClose }) {
+// `cover` hides the board entirely instead of dimming it.
+function Modal({ children, onClose, cover = false }) {
   return (
     <div
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(6,14,20,0.72)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}
+      style={{ position: "fixed", inset: 0, background: cover ? "radial-gradient(120% 100% at 50% 0%, #123240 0%, #0C1B26 70%)" : "rgba(6,14,20,0.72)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 50 }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -1300,6 +1303,7 @@ export default function ChoreBubbles() {
   const [simData, setSimData] = useState(null);
   const [simOpen, setSimOpen] = useState(false);
   const [introOpen, setIntroOpen] = useState(false);
+  const [freshStartOpen, setFreshStartOpen] = useState(false);
   const [suggestionSeed, setSuggestionSeed] = useState(0);
   // "What am I up for right now" is a moment-to-moment judgement, so it deliberately
   // resets on reopen and is never synced to the other phone.
@@ -1500,6 +1504,19 @@ export default function ChoreBubbles() {
       if (!localStorage.getItem(INTRO_KEY)) setIntroOpen(true);
     } catch {}
   }, [data, me, askWho, simDays]);
+
+  // Coming back to a board that froze over while life got busy: offer a clean
+  // slate before anyone has to look at it. Checked against the real shared data,
+  // and remembered per phone so declining does not bring it back on every reopen.
+  useEffect(() => {
+    if (!data || !me || askWho || introOpen || simDays > 0 || freshStartOpen) return;
+    let lastOfferedAt = 0;
+    try { lastOfferedAt = Number(localStorage.getItem(FRESH_START_KEY)) || 0; } catch {}
+    const at = realNow();
+    if (!shouldOfferFreshStart({ chores: data.chores, completions: data.completions, pauses: data.pauses || [], at, lastOfferedAt })) return;
+    try { localStorage.setItem(FRESH_START_KEY, String(at)); } catch {}
+    setFreshStartOpen(true);
+  }, [data, me, askWho, introOpen, simDays, freshStartOpen]);
 
   // Read per-device notification markers without advancing them. Merely
   // opening the app must never clear either glow.
@@ -1743,7 +1760,15 @@ export default function ChoreBubbles() {
     const comps = recurringChores(view.chores).map((ch) => ({ id: uid(), choreId: ch.id, choreName: ch.name, difficulty: ch.difficulty, by: "reset", ts }));
     if (comps.length === 0) return;
     commit({ type: "completion:add-many", completions: comps });
-    showToast("Board reset — every chore marked fresh");
+    showToast("Board reset — every chore marked fresh", () => {
+      commit({ type: "completion:remove", ids: comps.map((c) => c.id) });
+      setToast(null);
+    });
+  };
+
+  const startFresh = () => {
+    resetBubbles();
+    setFreshStartOpen(false);
   };
 
   // Pulse for every newly observed human completion, whether it was logged on
@@ -2742,6 +2767,18 @@ export default function ChoreBubbles() {
             <div><strong style={{ color: "#5FE0BB" }}>3.</strong> What you do stays in your tally for seven active days. Keep your effort in the green.</div>
           </div>
           <button onClick={dismissIntro} style={{ ...btnStyle("#5FE0BB"), width: "100%" }}>Got it</button>
+        </Modal>
+      )}
+
+      {/* Welcome back: the board froze over, so offer a clean slate before showing it */}
+      {freshStartOpen && !askWho && !introOpen && (
+        <Modal cover onClose={() => setFreshStartOpen(false)}>
+          <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 21, fontWeight: 700, marginBottom: 10 }}>Welcome back 🌱</div>
+          <div style={{ color: "#D7E7EA", fontSize: 14, lineHeight: 1.5, marginBottom: 20 }}>
+            Life got busy and the board froze over. It happens. Start fresh to thaw every bubble and pick up from today. Nobody gets points or blame, and the log keeps your history.
+          </div>
+          <button onClick={startFresh} style={{ ...btnStyle("#5FE0BB"), width: "100%", marginBottom: 8 }}>🌱 Start fresh</button>
+          <button onClick={() => setFreshStartOpen(false)} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", border: "1px solid #1E4152", fontSize: 13 }}>Show me the board</button>
         </Modal>
       )}
 
