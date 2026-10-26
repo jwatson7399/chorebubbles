@@ -629,6 +629,15 @@ the frozen board exactly, and declining kept the sheet away across reloads.
 - **The reset became undoable.** A one-tap action on a sheet that appears unbidden needs a way
   back. The reset toast now carries Undo, which removes exactly the reset entries it wrote,
   matching the cleaning-service pattern. The Board maintenance button gets Undo too.
+- **Revised: low health triggers it too.** Two weeks after the first fresh start the board sat
+  at 15% health with no offer. Since the reset, 14 days had passed. That froze every chore on a
+  cycle under seven days (10 of 24), but the weekly and longer chores were only cold, so the
+  frozen share stayed at 42%, under the half threshold. A lapse that follows a fresh start always
+  looks like this, because every streak restarts at zero and only the short cycles reach 🧊
+  quickly. The offer now also appears when health is below 30% (the 😫 and 🥀 faces), and the copy
+  says the board "got away from you" rather than claiming it all froze. The worry that a health
+  trigger would fire on an ordinary busy week was overstated: below 30% means most of the
+  importance-weighted board is at least twice its frequency overdue.
 - **Known imprecision:** a reset entry counts as an on-time completion for any chore that was
   not overdue, so it adds one step of heat to that chore. During a genuine lapse almost nothing is
   on time, so the effect is negligible where this sheet appears. It is a property of the existing

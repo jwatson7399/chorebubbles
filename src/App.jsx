@@ -1513,7 +1513,9 @@ export default function ChoreBubbles() {
     let lastOfferedAt = 0;
     try { lastOfferedAt = Number(localStorage.getItem(FRESH_START_KEY)) || 0; } catch {}
     const at = realNow();
-    if (!shouldOfferFreshStart({ chores: data.chores, completions: data.completions, pauses: data.pauses || [], at, lastOfferedAt })) return;
+    const pauses = data.pauses || [];
+    const health = healthScore(data.chores, data.completions, pauses);
+    if (!shouldOfferFreshStart({ chores: data.chores, completions: data.completions, pauses, at, lastOfferedAt, health })) return;
     try { localStorage.setItem(FRESH_START_KEY, String(at)); } catch {}
     setFreshStartOpen(true);
   }, [data, me, askWho, introOpen, simDays, freshStartOpen]);
@@ -2775,7 +2777,7 @@ export default function ChoreBubbles() {
         <Modal cover onClose={() => setFreshStartOpen(false)}>
           <div style={{ fontFamily: "'Baloo 2', sans-serif", fontSize: 21, fontWeight: 700, marginBottom: 10 }}>Welcome back 🌱</div>
           <div style={{ color: "#D7E7EA", fontSize: 14, lineHeight: 1.5, marginBottom: 20 }}>
-            Life got busy and the board froze over. It happens. Start fresh to thaw every bubble and pick up from today. Nobody gets points or blame, and the log keeps your history.
+            Life got busy and the board got away from you. It happens. Start fresh to thaw every bubble and pick up from today. Nobody gets points or blame, and the log keeps your history.
           </div>
           <button onClick={startFresh} style={{ ...btnStyle("#5FE0BB"), width: "100%", marginBottom: 8 }}>🌱 Start fresh</button>
           <button onClick={() => setFreshStartOpen(false)} style={{ ...btnStyle("#0F2530", "#B9D2D8"), width: "100%", border: "1px solid #1E4152", fontSize: 13 }}>Show me the board</button>

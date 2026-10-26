@@ -59,6 +59,17 @@ describe("shouldOfferFreshStart", () => {
     expect(shouldOfferFreshStart({ ...frozenBoard, lastOfferedAt: NOW - FRESH_START_QUIET_MS })).toBe(true);
   });
 
+  it("offers when health has sunk low even though few chores are frozen", () => {
+    const fresh = [doneYesterday("b"), doneYesterday("c")];
+    const board = { chores: [neglected("a"), ...fresh.map((item) => item.chore)], completions: fresh.map((item) => item.completion), pauses: [], at: NOW, lastOfferedAt: 0 };
+    expect(shouldOfferFreshStart({ ...board, health: 0.15 })).toBe(true);
+    expect(shouldOfferFreshStart({ ...board, health: 0.3 })).toBe(false);
+  });
+
+  it("never offers on an empty board, whatever the health", () => {
+    expect(shouldOfferFreshStart({ chores: [], completions: [], pauses: [], at: NOW, lastOfferedAt: 0, health: 0 })).toBe(false);
+  });
+
   it("never offers on a healthy board", () => {
     const fresh = doneYesterday("a");
     expect(shouldOfferFreshStart({ chores: [fresh.chore], completions: [fresh.completion], pauses: [], at: NOW, lastOfferedAt: 0 })).toBe(false);
